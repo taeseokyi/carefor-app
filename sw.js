@@ -1,7 +1,7 @@
 // 오프라인에서도 화면이 뜨도록 앱 파일을 캐시해 둡니다.
 // 기록 내용은 캐시하지 않습니다 (브라우저 저장소에만 있습니다).
 
-const VERSION = "v6";
+const VERSION = "v7";
 const CACHE = `carefor-${VERSION}`;
 
 const ASSETS = [
@@ -61,7 +61,9 @@ self.addEventListener("fetch", (event) => {
   // 앱 파일은 네트워크를 먼저 시도하고, 실패하면 캐시로 돌아갑니다.
   // 이렇게 해야 배포한 수정분이 바로 반영됩니다.
   event.respondWith(
-    fetch(request)
+    // GitHub Pages 는 파일을 10분간 캐시하라고 하므로, 그대로 두면 index.html 은 새것인데
+    // main.js 는 옛것인 식으로 어긋날 수 있습니다. 항상 서버에 바뀌었는지 묻습니다(ETag).
+    fetch(request, { cache: "no-cache" })
       .then((response) => {
         if (response.ok) {
           const copy = response.clone();

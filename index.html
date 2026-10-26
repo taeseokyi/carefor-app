@@ -292,6 +292,16 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
+<script>
+  // 스크립트가 아예 뜨지 못하면 버튼이 조용히 먹통이 됩니다. 그런 오류를 화면에 보여 줍니다.
+  window.addEventListener("error", (e) => {
+    if (!e.message) return;
+    const box = document.createElement("div");
+    box.className = "boot-error";
+    box.textContent = "앱 스크립트를 불러오지 못했습니다: " + e.message + " — 앱을 완전히 닫았다가 다시 열어 주세요.";
+    document.body.prepend(box);
+  });
+</script>
 <script type="module" src="js/main.js"></script>
 <script>
   // 오프라인에서도 화면이 뜨도록 서비스 워커를 등록합니다.
