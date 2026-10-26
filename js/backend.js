@@ -156,13 +156,14 @@ export async function checkHealth(baseUrl, token) {
 export async function submitJob(
   baseUrl,
   token,
-  { date, photos, manualText, roster, styleGuide }
+  { date, periodStart, photos, manualText, roster, styleGuide }
 ) {
   const data = await request(baseUrl, token, "/api/jobs", {
     timeoutMs: 5 * 60 * 1000,
     method: "POST",
     body: JSON.stringify({
       date,
+      periodStart,
       manualText,
       roster,
       styleGuide,

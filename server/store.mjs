@@ -20,7 +20,7 @@ export class JobStore {
     return join(this.root, date, id);
   }
 
-  async create({ date, photos, manualText, roster, styleGuide }) {
+  async create({ date, periodStart, photos, manualText, roster, styleGuide }) {
     const id = randomUUID().slice(0, 8);
     const dir = this.#dir(date, id);
     await mkdir(dir, { recursive: true });
@@ -35,6 +35,7 @@ export class JobStore {
     const meta = {
       id,
       date,
+      periodStart: periodStart ?? date,
       status: "queued", // queued | running | done | error
       photos: files,
       manualText: manualText ?? "",

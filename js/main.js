@@ -1,5 +1,5 @@
 import { readNotes, writeRecords } from "./api.js";
-import { buildHandoffPrompt, parseHandoffResponse } from "./prompts.js";
+import { buildHandoffPrompt, parseHandoffResponse, normalizePeriod } from "./prompts.js";
 import {
   checkHealth,
   submitJob,
@@ -36,6 +36,8 @@ const $ = (id) => document.getElementById(id);
 
 const el = {
   date: $("record-date"),
+  periodStart: $("period-start"),
+  periodNote: $("period-note"),
   openSettings: $("open-settings"),
   noticeOpenSettings: $("notice-open-settings"),
   setupNotice: $("setup-notice"),
@@ -125,6 +127,35 @@ function todayISO() {
 function dateLabel(iso) {
   const [y, m, d] = iso.split("-");
   return `${y}년 ${Number(m)}월 ${Number(d)}일`;
+}
+
+function shiftISO(iso, days) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+// ---------- 상태변화 기간 ----------
+// 케어포의 상태변화기록은 하루에서 길어야 일주일을 묶어 적습니다.
+// 시작일을 비워 두면 기록일 하루입니다.
+
+function currentPeriod() {
+  return normalizePeriod(el.date.value, el.periodStart.value);
+}
+
+function syncPeriod({ notify = false } = {}) {
+  const end = el.date.value;
+  el.periodStart.max = end;
+  el.periodStart.min = shiftISO(end, -6);
+
+  const typed = el.periodStart.value;
+  const period = currentPeriod();
+  if (typed && period.start !== typed) {
+    el.periodStart.value = "";
+    if (notify) toast("상태변화 기간은 기록일부터 거슬러 최대 7일까지입니다");
+  }
+
+  el.periodNote.textContent =
+    period.days > 1 ? `${period.label} · ${period.days}일치` : "";
 }
 
 let toastTimer;
@@ -817,6 +848,7 @@ el.btnSendLocal.addEventListener("click", async () => {
   try {
     const job = await submitJob(backendUrl, backendToken, {
       date: el.date.value,
+      periodStart: currentPeriod().start,
       photos: state.images,
       manualText,
       roster: state.settings.roster,
@@ -955,7 +987,7 @@ el.btnCopyPrompt.addEventListener("click", async () => {
   showError(el.readError, "");
 
   const prompt = buildHandoffPrompt({
-    dateLabel: dateLabel(el.date.value),
+    period: currentPeriod(),
     roster: state.settings.roster,
     manualText: el.manualText.value.trim(),
     styleGuide: state.settings.styleGuide,
@@ -1144,7 +1176,7 @@ el.btnGenerate.addEventListener("click", async () => {
     const result = await writeRecords({
       apiKey: state.settings.apiKey,
       model: state.settings.model,
-      dateLabel: dateLabel(el.date.value),
+      period: currentPeriod(),
       people,
       styleGuide: state.settings.styleGuide,
     });
@@ -1182,8 +1214,9 @@ const FIELDS = [
 function renderResults() {
   el.stepResult.hidden = state.records.length === 0;
 
+  const period = currentPeriod();
   const summary = [
-    dateLabel(el.date.value),
+    period.days > 1 ? `기록일 ${period.endLabel} · 상태변화 ${period.label}` : period.endLabel,
     `수급자 ${state.records.length}명`,
   ];
   if (state.settings.writer) summary.push(`작성자 ${state.settings.writer}`);
@@ -1330,6 +1363,7 @@ async function copyText(text) {
 function persistDraft() {
   saveDraft({
     date: el.date.value,
+    periodStart: el.periodStart.value,
     items: state.items,
     records: state.records,
     unreadable: state.unreadable,
@@ -1350,6 +1384,10 @@ function restoreDraft() {
   state.items = draft.items ?? [];
   state.records = draft.records ?? [];
   state.unreadable = draft.unreadable ?? [];
+  if (draft.periodStart) {
+    el.periodStart.value = draft.periodStart;
+    syncPeriod();
+  }
 
   if (state.items.length || state.records.length) {
     toast("작성 중이던 내용을 불러왔습니다");
@@ -1366,10 +1404,18 @@ function render() {
 // ---------- 시작 ----------
 
 el.date.value = todayISO();
+syncPeriod();
 el.date.addEventListener("change", () => {
   if (!el.date.value) el.date.value = todayISO();
+  syncPeriod({ notify: true });
   persistDraft();
+  renderResults();
   if (state.settings.mode === "local") refreshJobs().catch(() => {});
+});
+el.periodStart.addEventListener("change", () => {
+  syncPeriod({ notify: true });
+  persistDraft();
+  renderResults();
 });
 
 applySettingsToForm();

@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { platform } from "node:os";
 
-import { buildHandoffPrompt, HANDOFF_SCHEMA } from "../js/prompts.js";
+import { buildHandoffPrompt, HANDOFF_SCHEMA, normalizePeriod } from "../js/prompts.js";
 
 export class ClaudeRunner {
   /**
@@ -65,7 +65,7 @@ export class ClaudeRunner {
    */
   async run(meta, photoPaths, { logPath } = {}) {
     const prompt = buildHandoffPrompt({
-      dateLabel: formatDate(meta.date),
+      period: normalizePeriod(meta.date, meta.periodStart),
       roster: meta.roster,
       manualText: meta.manualText,
       styleGuide: meta.styleGuide,
@@ -187,9 +187,4 @@ function normalizeRecord(r) {
     cognitive: String(r?.cognitive ?? "").trim(),
     state_change: String(r?.state_change ?? "").trim(),
   };
-}
-
-function formatDate(iso) {
-  const [y, m, d] = iso.split("-");
-  return `${y}년 ${Number(m)}월 ${Number(d)}일`;
 }

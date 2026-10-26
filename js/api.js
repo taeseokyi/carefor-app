@@ -179,15 +179,15 @@ export async function readNotes({ apiKey, model, images, manualText, roster }) {
 export async function writeRecords({
   apiKey,
   model,
-  dateLabel,
+  period,
   people,
   styleGuide,
 }) {
   const { data, usage } = await callJson({
     apiKey,
     model,
-    system: buildWriteSystem(styleGuide),
-    content: buildWriteUserContent({ dateLabel, people }),
+    system: buildWriteSystem(styleGuide, period),
+    content: buildWriteUserContent({ period, people }),
     schema: WRITE_SCHEMA,
     effort: "high",
   });

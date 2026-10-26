@@ -304,6 +304,36 @@ main {
 
 .manual[open] summary { margin-bottom: 8px; }
 
+.period-field {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  font-size: .9rem;
+}
+
+.period-field label { font-weight: 600; }
+
+.period-field input {
+  font: inherit;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: inherit;
+}
+
+.period-field .period-until { color: var(--text-dim); }
+.period-field .period-note { color: var(--accent); font-weight: 600; }
+
+.period-field small {
+  flex-basis: 100%;
+  color: var(--text-dim);
+  font-size: .82rem;
+  line-height: 1.5;
+}
+
 .hint {
   margin: 0 0 8px;
   color: var(--text-dim);

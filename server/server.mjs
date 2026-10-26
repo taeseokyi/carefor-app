@@ -24,6 +24,7 @@ import { timingSafeEqual } from "node:crypto";
 import { JobStore } from "./store.mjs";
 import { ClaudeRunner } from "./runner.mjs";
 import { prepareTls } from "./tls.mjs";
+import { normalizePeriod } from "../js/prompts.js";
 
 const PORT = Number(process.env.PORT) || 8787;
 const TOKEN = process.env.CAREFOR_TOKEN || "";
@@ -265,10 +266,14 @@ const handler = async (req, res) => {
         ? body.roster.map((r) => String(r).trim()).filter(Boolean)
         : String(body.roster ?? "").split(/[\n,]/).map((r) => r.trim()).filter(Boolean);
 
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(body.date ?? "")
+        ? body.date
+        : new Date().toISOString().slice(0, 10);
+
       const meta = await store.create({
-        date: /^\d{4}-\d{2}-\d{2}$/.test(body.date ?? "")
-          ? body.date
-          : new Date().toISOString().slice(0, 10),
+        date,
+        // 상태변화 기간 시작일. 기록일 하루~일주일 범위를 벗어나면 기록일로 둡니다.
+        periodStart: normalizePeriod(date, body.periodStart).start,
         photos,
         manualText: String(body.manualText ?? ""),
         roster,

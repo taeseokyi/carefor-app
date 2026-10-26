@@ -112,6 +112,15 @@
       <textarea id="manual-text" rows="6" placeholder="홍길동 - 점심을 모두 다 드심&#10;박순자 - 노래 프로그램, 삶의 만족도 향상&#10;김영수 - 평소보다 말을 많이 하심"></textarea>
     </details>
 
+    <div class="period-field">
+      <label for="period-start">상태변화 기간</label>
+      <input type="date" id="period-start">
+      <span class="period-until">~ 기록일</span>
+      <span class="period-note" id="period-note"></span>
+      <small>비워 두면 기록일 하루. 길어야 일주일까지 묶을 수 있습니다.
+        여러 날 메모를 함께 올릴 때는 메모에 날짜를 적어 두세요. 기록일이 아닌 날 메모는 상태변화 칸에만 들어갑니다.</small>
+    </div>
+
     <div class="actions">
       <button type="button" class="btn primary only-local" id="btn-send-local">
         <span class="btn-label">노트북으로 보내기</span>
