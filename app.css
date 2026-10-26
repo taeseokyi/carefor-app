@@ -437,7 +437,68 @@ textarea:focus, input:focus, select:focus {
 /* ---------- 결과 ---------- */
 /* ---------- 모드별 표시 ---------- */
 body[data-mode="api"] .only-subscription,
-body[data-mode="subscription"] .only-api { display: none !important; }
+body[data-mode="api"] .only-local,
+body[data-mode="subscription"] .only-api,
+body[data-mode="subscription"] .only-local,
+body[data-mode="subscription"] .only-upload,
+body[data-mode="local"] .only-api,
+body[data-mode="local"] .only-subscription { display: none !important; }
+
+/* ---------- 노트북 작업 상태 ---------- */
+.job-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: .88rem;
+}
+
+.job-status.running { border-color: var(--brand); background: var(--brand-soft); }
+.job-status.done { border-color: var(--accent); background: var(--accent-soft); }
+.job-status.error { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+
+.job-status .job-text { flex: 1 1 auto; }
+
+.job-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+
+.job-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: .85rem;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  color: inherit;
+  font-family: inherit;
+}
+
+.job-row:hover { border-color: var(--brand); background: var(--brand-soft); }
+
+.job-row .when { color: var(--text-dim); }
+.job-row .what { flex: 1 1 auto; }
+
+.job-badge {
+  font-size: .72rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 1px 9px;
+  border: 1px solid currentColor;
+}
+
+.job-badge.queued,
+.job-badge.running { color: var(--brand); }
+.job-badge.done { color: var(--accent); }
+.job-badge.error { color: var(--danger); }
 
 .mode-hint {
   margin: 0 0 14px;

@@ -1,7 +1,7 @@
 // 오프라인에서도 화면이 뜨도록 앱 파일을 캐시해 둡니다.
 // 기록 내용은 캐시하지 않습니다 (브라우저 저장소에만 있습니다).
 
-const VERSION = "v3";
+const VERSION = "v4";
 const CACHE = `carefor-${VERSION}`;
 
 const ASSETS = [
@@ -10,6 +10,7 @@ const ASSETS = [
   "./app.css",
   "./js/main.js",
   "./js/api.js",
+  "./js/backend.js",
   "./js/prompts.js",
   "./js/store.js",
   "./manifest.webmanifest",

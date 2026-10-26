@@ -4,9 +4,12 @@ const SETTINGS_KEY = "carefor.settings.v1";
 const DRAFT_KEY = "carefor.draft.v1";
 
 const DEFAULTS = {
+  // "local"        = 집 노트북(WSL)의 claude CLI가 처리
   // "subscription" = Claude 앱에 붙여넣어 쓰는 방식(추가 결제 없음)
   // "api"          = 앱이 Anthropic API를 직접 호출
-  mode: "subscription",
+  mode: "local",
+  backendUrl: "",
+  backendToken: "",
   apiKey: "",
   model: "claude-opus-5-5",
   writer: "",

@@ -250,16 +250,26 @@ export function buildHandoffPrompt({
   roster,
   manualText,
   styleGuide,
+  photoPaths, // 노트북에서 claude CLI로 돌릴 때만 씁니다.
 }) {
   const parts = [];
 
-  parts.push(
-    `당신은 요양보호사의 급여제공기록 작성을 돕는 보조자입니다.
+  const intro = photoPaths?.length
+    ? `당신은 요양보호사의 급여제공기록 작성을 돕는 보조자입니다.
+아래 이미지 파일을 Read 도구로 읽어 주세요. 손으로 적은 메모 사진입니다.
+
+${photoPaths.map((p) => `- ${p}`).join("\n")}
+
+메모를 읽어 수급자별로 장기요양 기록 양식의 세 칸을 채워 주세요.
+
+기록일: ${dateLabel}`
+    : `당신은 요양보호사의 급여제공기록 작성을 돕는 보조자입니다.
 첨부한 사진은 오늘 업무 중 손으로 적은 메모입니다. 이 메모를 읽어
 수급자별로 장기요양 기록 양식의 세 칸을 채워 주세요.
 
-기록일: ${dateLabel}`
-  );
+기록일: ${dateLabel}`;
+
+  parts.push(intro);
 
   parts.push(`[메모 읽는 법]
 - 메모는 "수급자 이름 - 관찰/특이 사항" 형태의 줄로 되어 있습니다.
@@ -319,6 +329,9 @@ export function buildHandoffPrompt({
     );
   }
 
+  // CLI 쪽은 --json-schema 로 형식을 강제하므로 이 안내가 필요 없습니다.
+  if (photoPaths?.length) return parts.join("\n\n");
+
   parts.push(`[답변 형식 — 매우 중요]
 설명이나 인사말 없이, 아래 형태의 JSON 하나만 코드블록으로 출력해 주세요.
 
@@ -339,6 +352,55 @@ export function buildHandoffPrompt({
 
   return parts.join("\n\n");
 }
+
+/** claude CLI 의 --json-schema 로 넘기는 응답 형식. */
+export const HANDOFF_SCHEMA = {
+  type: "object",
+  properties: {
+    records: {
+      type: "array",
+      description: "수급자 한 명당 하나씩.",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "수급자 이름" },
+          notes: {
+            type: "array",
+            description: "메모에서 읽어 낸 내용",
+            items: { type: "string" },
+          },
+          uncertain: {
+            type: "boolean",
+            description: "글씨가 흐려 확인이 필요하면 true",
+          },
+          physical: {
+            type: "string",
+            description: "신체활동 특이사항. 근거가 없으면 빈 문자열.",
+          },
+          cognitive: {
+            type: "string",
+            description: "인지관리 특이사항. 근거가 없으면 빈 문자열.",
+          },
+          state_change: {
+            type: "string",
+            description: "상태변화 기록. 근거가 없으면 빈 문자열.",
+          },
+        },
+        required: [
+          "name",
+          "notes",
+          "uncertain",
+          "physical",
+          "cognitive",
+          "state_change",
+        ],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["records"],
+  additionalProperties: false,
+};
 
 /**
  * Claude 앱이 돌려준 답을 읽어 들입니다.

@@ -50,12 +50,17 @@
       </div>
     </div>
 
+    <p class="mode-hint only-local" id="local-hint">
+      사진을 올리면 <b>집 노트북</b>이 받아서 기록을 만들어 둡니다.
+      노트북 서버가 켜져 있어야 합니다.
+    </p>
+
     <p class="mode-hint only-subscription" id="subscription-hint">
       사진은 이 앱이 아니라 <b>Claude 앱에 직접</b> 올립니다.
       아래 버튼으로 프롬프트를 복사해 Claude 앱에 붙여 넣고, 메모 사진을 함께 보내세요.
     </p>
 
-    <div class="dropzone only-api" id="dropzone" tabindex="0" role="button"
+    <div class="dropzone only-upload" id="dropzone" tabindex="0" role="button"
          aria-label="사진 선택 또는 끌어다 놓기">
       <div class="dropzone-inner">
         <div class="dz-icon">📷</div>
@@ -65,7 +70,7 @@
       <input type="file" id="file-input" accept="image/*" multiple hidden>
     </div>
 
-    <div class="thumbs only-api" id="thumbs" hidden></div>
+    <div class="thumbs only-upload" id="thumbs" hidden></div>
 
     <details class="manual" id="manual-wrap">
       <summary>사진 대신 직접 입력하기 / 사진에 덧붙이기</summary>
@@ -74,6 +79,9 @@
     </details>
 
     <div class="actions">
+      <button type="button" class="btn primary only-local" id="btn-send-local">
+        <span class="btn-label">노트북으로 보내기</span>
+      </button>
       <button type="button" class="btn primary only-api" id="btn-read">
         <span class="btn-label">메모 판독하기</span>
       </button>
@@ -83,6 +91,31 @@
       <button type="button" class="btn ghost" id="btn-clear-input">모두 지우기</button>
     </div>
     <p class="err" id="read-error" hidden></p>
+
+    <div class="job-status only-local" id="job-status" hidden>
+      <span class="spinner" id="job-spinner"></span>
+      <span class="job-text" id="job-text"></span>
+    </div>
+  </section>
+
+  <!-- ===== 노트북 모드 : 오늘 만들어 둔 기록 ===== -->
+  <section class="card only-local" id="step-jobs">
+    <div class="step-head">
+      <span class="step-no">2</span>
+      <div>
+        <h2>노트북이 만들어 둔 기록</h2>
+        <p class="step-desc">
+          보낸 사진이 처리되면 여기에 쌓입니다. 눌러서 결과를 불러오세요.
+        </p>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="btn ghost small" id="btn-refresh-jobs">새로 고침</button>
+    </div>
+
+    <div class="job-list" id="job-list"></div>
+    <p class="err" id="jobs-error" hidden></p>
   </section>
 
   <!-- ===== 구독 모드 : Claude 답변 받아오기 ===== -->
@@ -156,11 +189,33 @@
     <label class="field">
       <span>작동 방식</span>
       <select id="mode">
-        <option value="subscription">Claude 앱으로 — 구독만 쓰고 추가 결제 없음</option>
+        <option value="local">노트북으로 — 집 노트북의 claude CLI가 처리</option>
+        <option value="subscription">Claude 앱으로 — 프롬프트 복사해 붙여넣기</option>
         <option value="api">API 키로 — 앱 안에서 자동 처리</option>
       </select>
       <small id="mode-note"></small>
     </label>
+
+    <div id="field-backend" hidden>
+      <label class="field">
+        <span>노트북 주소</span>
+        <input type="url" id="backend-url" placeholder="https://xxxx.trycloudflare.com"
+               autocomplete="off" spellcheck="false" inputmode="url">
+        <small>노트북에서 터널을 띄우면 나오는 https 주소입니다.</small>
+      </label>
+
+      <label class="field">
+        <span>접근 토큰</span>
+        <input type="password" id="backend-token" placeholder="노트북에서 정한 토큰"
+               autocomplete="off" spellcheck="false">
+        <small>노트북 서버를 띄울 때 쓴 <code>CAREFOR_TOKEN</code> 과 같은 값입니다.</small>
+      </label>
+
+      <div class="field">
+        <button type="button" class="btn ghost small" id="btn-test-backend">연결 확인</button>
+        <small id="backend-status"></small>
+      </div>
+    </div>
 
     <label class="field" id="field-api-key">
       <span>Anthropic API 키</span>

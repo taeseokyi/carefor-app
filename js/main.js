@@ -1,6 +1,13 @@
 import { readNotes, writeRecords } from "./api.js";
 import { buildHandoffPrompt, parseHandoffResponse } from "./prompts.js";
 import {
+  checkHealth,
+  submitJob,
+  listJobs,
+  getJob,
+  waitForJob,
+} from "./backend.js";
+import {
   loadSettings,
   saveSettings,
   clearStored,
@@ -35,7 +42,15 @@ const el = {
   manualWrap: $("manual-wrap"),
   manualText: $("manual-text"),
   btnRead: $("btn-read"),
+  btnSendLocal: $("btn-send-local"),
   btnCopyPrompt: $("btn-copy-prompt"),
+  jobStatus: $("job-status"),
+  jobSpinner: $("job-spinner"),
+  jobText: $("job-text"),
+  stepJobs: $("step-jobs"),
+  jobList: $("job-list"),
+  btnRefreshJobs: $("btn-refresh-jobs"),
+  jobsError: $("jobs-error"),
   btnClearInput: $("btn-clear-input"),
   readError: $("read-error"),
 
@@ -62,6 +77,11 @@ const el = {
   modeNote: $("mode-note"),
   fieldApiKey: $("field-api-key"),
   fieldModel: $("field-model"),
+  fieldBackend: $("field-backend"),
+  backendUrl: $("backend-url"),
+  backendToken: $("backend-token"),
+  btnTestBackend: $("btn-test-backend"),
+  backendStatus: $("backend-status"),
   writer: $("writer"),
   roster: $("roster"),
   styleGuide: $("style-guide"),
@@ -126,6 +146,8 @@ function setBusy(button, busy, busyLabel) {
 // ---------- 설정 ----------
 
 const MODE_NOTES = {
+  local:
+    "집 노트북의 claude CLI가 사진을 받아 기록을 만들어 둡니다. 노트북 서버가 켜져 있어야 하고, 구독 외에 드는 비용이 없습니다.",
   subscription:
     "Claude 앱(웹·휴대폰)에 프롬프트와 사진을 직접 보내고, 답변만 이 앱으로 가져옵니다. 구독 외에 드는 비용이 없습니다.",
   api: "이 앱이 Anthropic API를 직접 불러 사진까지 한 번에 처리합니다. 쓴 만큼 API 요금이 듭니다.",
@@ -139,6 +161,7 @@ function applyMode() {
   const isApi = mode === "api";
   el.fieldApiKey.hidden = !isApi;
   el.fieldModel.hidden = !isApi;
+  el.fieldBackend.hidden = mode !== "local";
 }
 
 function applySettingsToForm() {
@@ -148,6 +171,9 @@ function applySettingsToForm() {
   el.writer.value = state.settings.writer;
   el.roster.value = state.settings.roster.join("\n");
   el.styleGuide.value = state.settings.styleGuide;
+  el.backendUrl.value = state.settings.backendUrl;
+  el.backendToken.value = state.settings.backendToken;
+  el.backendStatus.textContent = "";
 }
 
 function refreshSetupNotice() {
@@ -177,11 +203,15 @@ el.dlg.addEventListener("close", () => {
       .map((line) => line.trim())
       .filter(Boolean),
     styleGuide: el.styleGuide.value.trim(),
+    backendUrl: el.backendUrl.value.trim(),
+    backendToken: el.backendToken.value.trim(),
   };
 
   const ok = saveSettings(state.settings);
   applyMode();
   refreshSetupNotice();
+  renderRosterDatalist();
+  if (state.settings.mode === "local") refreshJobs().catch(() => {});
   toast(ok ? "설정을 저장했습니다" : "설정은 적용했지만 이 브라우저에 저장하지 못했습니다");
 });
 
@@ -383,6 +413,197 @@ el.btnRead.addEventListener("click", async () => {
   } finally {
     setBusy(el.btnRead, false);
   }
+});
+
+// ---------- 노트북 모드 ----------
+
+el.btnTestBackend.addEventListener("click", async () => {
+  el.backendStatus.textContent = "확인 중…";
+  try {
+    await checkHealth(el.backendUrl.value.trim(), el.backendToken.value.trim());
+    el.backendStatus.textContent = "✓ 노트북과 연결됐습니다.";
+    el.backendStatus.style.color = "var(--accent)";
+  } catch (error) {
+    el.backendStatus.textContent = error.message;
+    el.backendStatus.style.color = "var(--danger)";
+  }
+});
+
+function showJobStatus(kind, text, busy) {
+  el.jobStatus.hidden = false;
+  el.jobStatus.className = `job-status only-local ${kind}`;
+  el.jobText.textContent = text;
+  el.jobSpinner.hidden = !busy;
+}
+
+const JOB_LABEL = {
+  queued: "차례 기다리는 중",
+  running: "노트북이 작업 중",
+  done: "완료",
+  error: "실패",
+};
+
+async function followJob(id) {
+  const { backendUrl, backendToken } = state.settings;
+
+  const job = await waitForJob(backendUrl, backendToken, id, {
+    onUpdate: (j) => {
+      if (j.status === "queued" || j.status === "running") {
+        showJobStatus("running", `${JOB_LABEL[j.status]}…`, true);
+      }
+    },
+  });
+
+  if (job.status === "error") {
+    showJobStatus("error", `노트북에서 실패했습니다 — ${job.error}`, false);
+    return;
+  }
+
+  loadJobIntoResults(job);
+  showJobStatus(
+    "done",
+    `완료 · 수급자 ${job.records.length}명` +
+      (job.costUsd ? ` · 약 $${job.costUsd.toFixed(3)}` : ""),
+    false
+  );
+  refreshJobs().catch(() => {});
+}
+
+function loadJobIntoResults(job) {
+  state.records = (job.records ?? []).map((r) => ({
+    name: r.name,
+    notes: r.notes ?? [],
+    uncertain: Boolean(r.uncertain),
+    physical: r.physical ?? "",
+    cognitive: r.cognitive ?? "",
+    state_change: r.state_change ?? "",
+  }));
+  state.items = [];
+  state.unreadable = [];
+  render();
+  persistDraft();
+  el.stepResult.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+el.btnSendLocal.addEventListener("click", async () => {
+  showError(el.readError, "");
+
+  const { backendUrl, backendToken } = state.settings;
+  if (!backendUrl) {
+    showError(el.readError, "⚙ 설정에서 노트북 주소를 먼저 넣어 주세요.");
+    openSettings();
+    return;
+  }
+
+  const manualText = el.manualText.value.trim();
+  if (!state.images.length && !manualText) {
+    showError(el.readError, "사진을 올리거나 메모를 직접 입력해 주세요.");
+    return;
+  }
+
+  setBusy(el.btnSendLocal, true, "보내는 중…");
+  try {
+    const job = await submitJob(backendUrl, backendToken, {
+      date: el.date.value,
+      photos: state.images,
+      manualText,
+      roster: state.settings.roster,
+      styleGuide: state.settings.styleGuide,
+    });
+
+    toast("노트북으로 보냈습니다");
+    showJobStatus("running", "차례 기다리는 중…", true);
+
+    // 사진은 노트북이 보관하므로 앱에서는 비웁니다.
+    state.images.forEach((img) => URL.revokeObjectURL(img.url));
+    state.images = [];
+    el.manualText.value = "";
+    renderThumbs();
+
+    await followJob(job.id);
+  } catch (error) {
+    showError(el.readError, error.message);
+    showJobStatus("error", error.message, false);
+  } finally {
+    setBusy(el.btnSendLocal, false);
+  }
+});
+
+async function refreshJobs() {
+  showError(el.jobsError, "");
+  const { backendUrl, backendToken } = state.settings;
+  if (!backendUrl) {
+    el.jobList.replaceChildren();
+    return;
+  }
+
+  let jobs;
+  try {
+    jobs = await listJobs(backendUrl, backendToken, el.date.value);
+  } catch (error) {
+    showError(el.jobsError, error.message);
+    el.jobList.replaceChildren();
+    return;
+  }
+
+  if (!jobs.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-hint";
+    empty.textContent = "이 날짜로 보낸 기록이 아직 없습니다.";
+    el.jobList.replaceChildren(empty);
+    return;
+  }
+
+  el.jobList.replaceChildren(
+    ...jobs.map((job) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "job-row";
+
+      const when = document.createElement("span");
+      when.className = "when";
+      when.textContent = new Date(job.createdAt).toLocaleTimeString("ko-KR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      const what = document.createElement("span");
+      what.className = "what";
+      what.textContent =
+        job.status === "done"
+          ? `수급자 ${job.recordCount}명`
+          : `사진 ${job.photoCount}장`;
+
+      const badge = document.createElement("span");
+      badge.className = `job-badge ${job.status}`;
+      badge.textContent = JOB_LABEL[job.status] ?? job.status;
+
+      row.append(when, what, badge);
+      row.addEventListener("click", async () => {
+        if (job.status === "done") {
+          try {
+            const full = await getJob(backendUrl, backendToken, job.id);
+            loadJobIntoResults(full);
+            toast(`${full.records.length}명 불러왔습니다`);
+          } catch (error) {
+            showError(el.jobsError, error.message);
+          }
+        } else if (job.status === "error") {
+          showError(el.jobsError, `실패: ${job.error}`);
+        } else {
+          showJobStatus("running", `${JOB_LABEL[job.status]}…`, true);
+          followJob(job.id).catch((error) =>
+            showError(el.jobsError, error.message)
+          );
+        }
+      });
+      return row;
+    })
+  );
+}
+
+el.btnRefreshJobs.addEventListener("click", () => {
+  refreshJobs().catch(() => {});
 });
 
 // ---------- 구독 모드 : 프롬프트 복사 · 답변 불러오기 ----------
@@ -798,6 +1019,7 @@ el.date.value = todayISO();
 el.date.addEventListener("change", () => {
   if (!el.date.value) el.date.value = todayISO();
   persistDraft();
+  if (state.settings.mode === "local") refreshJobs().catch(() => {});
 });
 
 applySettingsToForm();
@@ -806,3 +1028,7 @@ refreshSetupNotice();
 renderRosterDatalist();
 restoreDraft();
 render();
+
+if (state.settings.mode === "local" && state.settings.backendUrl) {
+  refreshJobs().catch(() => {});
+}
