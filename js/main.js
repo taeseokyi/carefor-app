@@ -106,6 +106,8 @@ const el = {
   roster: $("roster"),
   styleGuide: $("style-guide"),
   btnForget: $("btn-forget"),
+  btnCancelSettings: $("btn-cancel-settings"),
+  topbar: document.querySelector(".topbar"),
 
   toast: $("toast"),
 };
@@ -128,6 +130,8 @@ function dateLabel(iso) {
 let toastTimer;
 function toast(message) {
   el.toast.textContent = message;
+  // 아래쪽에 두면 방금 누른 버튼을 가리므로 상단바 바로 아래에 띄웁니다.
+  el.toast.style.top = `${Math.round(el.topbar.getBoundingClientRect().bottom) + 12}px`;
   el.toast.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
@@ -218,6 +222,11 @@ function openSettings() {
 
 el.openSettings.addEventListener("click", openSettings);
 el.noticeOpenSettings.addEventListener("click", openSettings);
+el.btnCancelSettings.addEventListener("click", () => el.dlg.close("cancel"));
+// 창 바깥(어두운 배경)을 누르면 닫힙니다. 폰에는 Esc 가 없습니다.
+el.dlg.addEventListener("click", (event) => {
+  if (event.target === el.dlg) el.dlg.close("cancel");
+});
 
 el.dlg.addEventListener("close", () => {
   if (el.dlg.returnValue !== "save") return;
@@ -619,7 +628,7 @@ async function refreshConn({ quiet = false } = {}) {
   setConn("busy", `${hostOf(backendUrl)} 확인 중…`);
   try {
     await checkHealth(backendUrl, backendToken);
-    setConn("ok", `${hostOf(backendUrl)} 연결됨`);
+    setConn("ok", `연결됨 · ${hostOf(backendUrl)}`);
     rememberConnected(backendUrl);
     closeConnEdit();
     closeCertGuide();
@@ -886,7 +895,11 @@ async function refreshJobs() {
       badge.className = `job-badge ${job.status}`;
       badge.textContent = JOB_LABEL[job.status] ?? job.status;
 
-      row.append(when, what, badge);
+      const go = document.createElement("span");
+      go.className = "go";
+      go.textContent = job.status === "done" ? "불러오기 ›" : "›";
+
+      row.append(when, what, badge, go);
 
       const del = document.createElement("button");
       del.type = "button";
@@ -1205,6 +1218,13 @@ function renderResults() {
 
       const body = document.createElement("div");
       body.className = "person-body";
+
+      if (record.uncertain) {
+        const note = document.createElement("p");
+        note.className = "uncertain-note";
+        note.textContent = "⚠ 글씨가 흐려 잘못 읽었을 수 있습니다. 메모와 견주어 확인해 주세요.";
+        body.append(note);
+      }
 
       if (record.notes.length) {
         const source = document.createElement("div");

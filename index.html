@@ -20,7 +20,7 @@
 
 <header class="topbar">
   <div class="topbar-inner">
-    <h1>요양급여제공 기록 도우미</h1>
+    <h1><span class="title-full">요양급여제공 기록 도우미</span><span class="title-short" aria-hidden="true">급여기록 도우미</span></h1>
     <div class="topbar-right">
       <label class="date-field">
         <span>기록일</span>
@@ -37,7 +37,7 @@
   <div class="notice" id="setup-notice" hidden>
     <strong>먼저 API 키를 등록해 주세요.</strong>
     <span>오른쪽 위 ⚙ 설정에서 Anthropic API 키를 한 번만 넣으면 사진 판독이 됩니다.</span>
-    <button type="button" class="link-btn" id="notice-open-settings">설정 열기</button>
+    <button type="button" class="btn primary small" id="notice-open-settings">설정 열기</button>
   </div>
 
   <!-- ===== 1단계 : 메모 입력 ===== -->
@@ -54,8 +54,10 @@
       <div class="conn-line" id="conn-line">
         <span class="conn-dot" id="conn-dot"></span>
         <span class="conn-text" id="conn-text">노트북 주소를 넣어 주세요</span>
-        <button type="button" class="link-btn" id="conn-cert-toggle">인증서</button>
-        <button type="button" class="link-btn" id="conn-change">바꾸기</button>
+        <div class="conn-tools">
+          <button type="button" class="btn ghost small" id="conn-cert-toggle">인증서</button>
+          <button type="button" class="btn ghost small" id="conn-change">주소 바꾸기</button>
+        </div>
       </div>
 
       <div class="conn-edit" id="conn-edit" hidden>
@@ -72,14 +74,16 @@
       </div>
 
       <div class="conn-cert" id="conn-cert" hidden>
-        <h3>이 폰에 노트북 인증서 설치하기 <small>(처음 한 번)</small></h3>
+        <div class="conn-cert-head">
+          <h3>이 폰에 노트북 인증서 설치하기 <small>(처음 한 번)</small></h3>
+          <button type="button" class="btn ghost small" id="conn-cert-close">닫기</button>
+        </div>
         <p class="hint">노트북은 자체 서명 인증서로 https를 제공합니다. 이 폰이 그 인증서를 믿어야 연결됩니다.
           같은 Wi-Fi에서 아래 순서대로 하면 됩니다.</p>
         <ol class="cert-steps" id="cert-steps"></ol>
         <div class="conn-buttons">
           <button type="button" class="btn primary small" id="conn-cert-download">인증서 파일 받기</button>
           <button type="button" class="btn ghost small" id="conn-cert-recheck">연결 다시 확인</button>
-          <button type="button" class="btn ghost small" id="conn-cert-close">닫기</button>
         </div>
       </div>
       <datalist id="recent-urls"></datalist>
@@ -221,9 +225,9 @@
     <label class="field">
       <span>작동 방식</span>
       <select id="mode">
-        <option value="local">노트북으로 — 집 노트북의 claude CLI가 처리</option>
-        <option value="subscription">Claude 앱으로 — 프롬프트 복사해 붙여넣기</option>
-        <option value="api">API 키로 — 앱 안에서 자동 처리</option>
+        <option value="local">노트북으로 (추가 결제 없음)</option>
+        <option value="subscription">Claude 앱으로 (붙여넣기)</option>
+        <option value="api">API 키로 (앱이 직접 처리)</option>
       </select>
       <small id="mode-note"></small>
     </label>
@@ -285,7 +289,10 @@
 
     <div class="dlg-actions">
       <button type="button" class="btn ghost" id="btn-forget">저장된 내용 삭제</button>
-      <button type="submit" class="btn primary" value="save">저장</button>
+      <div class="dlg-right">
+        <button type="button" class="btn ghost" id="btn-cancel-settings">취소</button>
+        <button type="submit" class="btn primary" value="save">저장</button>
+      </div>
     </div>
   </form>
 </dialog>
