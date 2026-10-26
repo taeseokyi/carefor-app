@@ -10,6 +10,7 @@ const DEFAULTS = {
   mode: "local",
   backendUrl: "",
   backendToken: "",
+  recentBackendUrls: [],
   apiKey: "",
   model: "claude-opus-5-5",
   writer: "",

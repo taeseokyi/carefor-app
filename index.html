@@ -50,10 +50,26 @@
       </div>
     </div>
 
-    <p class="mode-hint only-local" id="local-hint">
-      사진을 올리면 <b>집 노트북</b>이 받아서 기록을 만들어 둡니다.
-      노트북 서버가 켜져 있어야 합니다.
-    </p>
+    <div class="conn only-local" id="conn">
+      <div class="conn-line" id="conn-line">
+        <span class="conn-dot" id="conn-dot"></span>
+        <span class="conn-text" id="conn-text">노트북 주소를 넣어 주세요</span>
+        <button type="button" class="link-btn" id="conn-change">바꾸기</button>
+      </div>
+
+      <div class="conn-edit" id="conn-edit" hidden>
+        <input type="url" id="conn-url" list="recent-urls" inputmode="url"
+               autocomplete="off" spellcheck="false"
+               placeholder="https://xxxx.trycloudflare.com">
+        <div class="conn-buttons">
+          <button type="button" class="btn ghost small" id="conn-paste">붙여넣기</button>
+          <button type="button" class="btn primary small" id="conn-connect">연결</button>
+          <button type="button" class="btn ghost small" id="conn-cancel">취소</button>
+        </div>
+        <p class="hint">노트북에서 터널을 띄우면 나오는 https 주소입니다. 바뀔 때마다 여기서 넣으면 됩니다.</p>
+      </div>
+      <datalist id="recent-urls"></datalist>
+    </div>
 
     <p class="mode-hint only-subscription" id="subscription-hint">
       사진은 이 앱이 아니라 <b>Claude 앱에 직접</b> 올립니다.

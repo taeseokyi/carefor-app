@@ -47,6 +47,16 @@ const el = {
   jobStatus: $("job-status"),
   jobSpinner: $("job-spinner"),
   jobText: $("job-text"),
+  conn: $("conn"),
+  connDot: $("conn-dot"),
+  connText: $("conn-text"),
+  connChange: $("conn-change"),
+  connEdit: $("conn-edit"),
+  connUrl: $("conn-url"),
+  connPaste: $("conn-paste"),
+  connConnect: $("conn-connect"),
+  connCancel: $("conn-cancel"),
+  recentUrls: $("recent-urls"),
   stepJobs: $("step-jobs"),
   jobList: $("job-list"),
   btnRefreshJobs: $("btn-refresh-jobs"),
@@ -205,13 +215,19 @@ el.dlg.addEventListener("close", () => {
     styleGuide: el.styleGuide.value.trim(),
     backendUrl: el.backendUrl.value.trim(),
     backendToken: el.backendToken.value.trim(),
+    recentBackendUrls: state.settings.recentBackendUrls,
   };
 
   const ok = saveSettings(state.settings);
   applyMode();
   refreshSetupNotice();
   renderRosterDatalist();
-  if (state.settings.mode === "local") refreshJobs().catch(() => {});
+  renderRecentUrls();
+  if (state.settings.mode === "local") {
+    refreshConn({ quiet: true }).then((connected) => {
+      if (connected) refreshJobs().catch(() => {});
+    });
+  }
   toast(ok ? "설정을 저장했습니다" : "설정은 적용했지만 이 브라우저에 저장하지 못했습니다");
 });
 
@@ -415,6 +431,120 @@ el.btnRead.addEventListener("click", async () => {
   }
 });
 
+// ---------- 노트북 연결 줄 ----------
+
+/** 주소에서 보기 좋은 부분만 꺼냅니다. */
+function hostOf(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+function setConn(kind, text) {
+  el.connDot.className = `conn-dot ${kind}`;
+  el.connText.textContent = text;
+}
+
+function renderRecentUrls() {
+  el.recentUrls.replaceChildren(
+    ...state.settings.recentBackendUrls.map((url) => {
+      const option = document.createElement("option");
+      option.value = url;
+      return option;
+    })
+  );
+}
+
+function rememberUrl(url) {
+  const recent = [
+    url,
+    ...state.settings.recentBackendUrls.filter((u) => u !== url),
+  ].slice(0, 5);
+  state.settings = { ...state.settings, backendUrl: url, recentBackendUrls: recent };
+  saveSettings(state.settings);
+  renderRecentUrls();
+}
+
+function openConnEdit() {
+  el.connEdit.hidden = false;
+  el.connUrl.value = state.settings.backendUrl;
+  el.connUrl.focus();
+  el.connUrl.select();
+}
+
+function closeConnEdit() {
+  el.connEdit.hidden = true;
+}
+
+/** 저장된 주소로 연결을 확인하고 줄에 상태를 보여 줍니다. */
+async function refreshConn({ quiet = false } = {}) {
+  const { backendUrl, backendToken } = state.settings;
+
+  if (!backendUrl) {
+    setConn("", "노트북 주소를 넣어 주세요");
+    if (!quiet) openConnEdit();
+    return false;
+  }
+
+  setConn("busy", `${hostOf(backendUrl)} 확인 중…`);
+  try {
+    await checkHealth(backendUrl, backendToken);
+    setConn("ok", `${hostOf(backendUrl)} 연결됨`);
+    closeConnEdit();
+    return true;
+  } catch (error) {
+    setConn("bad", error.message);
+    return false;
+  }
+}
+
+el.connChange.addEventListener("click", () => {
+  if (el.connEdit.hidden) openConnEdit();
+  else closeConnEdit();
+});
+
+el.connCancel.addEventListener("click", closeConnEdit);
+
+el.connPaste.addEventListener("click", async () => {
+  try {
+    const text = (await navigator.clipboard.readText()).trim();
+    if (text) {
+      el.connUrl.value = text;
+      return;
+    }
+    toast("클립보드가 비어 있습니다");
+  } catch {
+    // 권한이 없으면 직접 붙여 넣도록 입력칸에 커서만 둡니다.
+    el.connUrl.focus();
+    toast("길게 눌러 붙여 넣어 주세요");
+  }
+});
+
+el.connConnect.addEventListener("click", async () => {
+  const url = el.connUrl.value.trim();
+  if (!url) {
+    toast("주소를 넣어 주세요");
+    return;
+  }
+
+  rememberUrl(url);
+
+  const ok = await refreshConn();
+  if (ok) {
+    toast("노트북과 연결됐습니다");
+    refreshJobs().catch(() => {});
+  }
+});
+
+el.connUrl.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    el.connConnect.click();
+  }
+});
+
 // ---------- 노트북 모드 ----------
 
 el.btnTestBackend.addEventListener("click", async () => {
@@ -490,8 +620,8 @@ el.btnSendLocal.addEventListener("click", async () => {
 
   const { backendUrl, backendToken } = state.settings;
   if (!backendUrl) {
-    showError(el.readError, "⚙ 설정에서 노트북 주소를 먼저 넣어 주세요.");
-    openSettings();
+    showError(el.readError, "노트북 주소를 먼저 넣어 주세요.");
+    openConnEdit();
     return;
   }
 
@@ -524,6 +654,11 @@ el.btnSendLocal.addEventListener("click", async () => {
   } catch (error) {
     showError(el.readError, error.message);
     showJobStatus("error", error.message, false);
+    // 주소나 토큰이 틀렸을 수 있으니 바로 고칠 수 있게 열어 둡니다.
+    if (["offline", "auth", "bad_url", "mixed_content"].includes(error.kind)) {
+      setConn("bad", error.message);
+      openConnEdit();
+    }
   } finally {
     setBusy(el.btnSendLocal, false);
   }
@@ -1026,9 +1161,13 @@ applySettingsToForm();
 applyMode();
 refreshSetupNotice();
 renderRosterDatalist();
+renderRecentUrls();
 restoreDraft();
 render();
 
-if (state.settings.mode === "local" && state.settings.backendUrl) {
-  refreshJobs().catch(() => {});
+if (state.settings.mode === "local") {
+  // 주소가 아직 없으면 입력칸을 열어 둡니다.
+  refreshConn().then((connected) => {
+    if (connected) refreshJobs().catch(() => {});
+  });
 }

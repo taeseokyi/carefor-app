@@ -1,7 +1,7 @@
 // 오프라인에서도 화면이 뜨도록 앱 파일을 캐시해 둡니다.
 // 기록 내용은 캐시하지 않습니다 (브라우저 저장소에만 있습니다).
 
-const VERSION = "v4";
+const VERSION = "v5";
 const CACHE = `carefor-${VERSION}`;
 
 const ASSETS = [
