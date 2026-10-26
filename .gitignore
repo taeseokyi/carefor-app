@@ -1,0 +1,13 @@
+# 개인정보가 담긴 자료는 절대 커밋하지 않습니다
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.webp
+노트사진/
+화면캡처/
+기록/
+*.local
+.DS_Store
+Thumbs.db
+node_modules/

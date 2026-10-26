@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>요양급여제공 기록 도우미</title>
+<meta name="description" content="손으로 적은 메모 사진을 올리면 수급자별로 신체활동 특이사항·인지관리 특이사항·상태변화 기록 문장을 만들어 줍니다.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%238a5a2b'/%3E%3Cpath d='M9 8h11l4 4v12a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z' fill='%23fff'/%3E%3Cpath d='M11 15h10M11 19h7' stroke='%238a5a2b' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <h1>요양급여제공 기록 도우미</h1>
+    <div class="topbar-right">
+      <label class="date-field">
+        <span>기록일</span>
+        <input type="date" id="record-date">
+      </label>
+      <button type="button" class="icon-btn" id="open-settings" aria-label="설정 열기" title="설정">⚙</button>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ===== 안내 배너 ===== -->
+  <div class="notice" id="setup-notice" hidden>
+    <strong>먼저 API 키를 등록해 주세요.</strong>
+    <span>오른쪽 위 ⚙ 설정에서 Anthropic API 키를 한 번만 넣으면 사진 판독이 됩니다.</span>
+    <button type="button" class="link-btn" id="notice-open-settings">설정 열기</button>
+  </div>
+
+  <!-- ===== 1단계 : 메모 입력 ===== -->
+  <section class="card" id="step-input">
+    <div class="step-head">
+      <span class="step-no">1</span>
+      <div>
+        <h2>메모 올리기</h2>
+        <p class="step-desc">업무 중 적어 둔 메모를 사진으로 찍어 올리거나, 아래에 직접 적어 주세요.</p>
+      </div>
+    </div>
+
+    <div class="dropzone" id="dropzone" tabindex="0" role="button"
+         aria-label="사진 선택 또는 끌어다 놓기">
+      <div class="dropzone-inner">
+        <div class="dz-icon">📷</div>
+        <p class="dz-title">사진을 끌어다 놓거나 눌러서 선택</p>
+        <p class="dz-sub">여러 장 한꺼번에 올려도 됩니다 · 휴대폰에서는 카메라로 바로 촬영</p>
+      </div>
+      <input type="file" id="file-input" accept="image/*" multiple hidden>
+    </div>
+
+    <div class="thumbs" id="thumbs" hidden></div>
+
+    <details class="manual" id="manual-wrap">
+      <summary>사진 대신 직접 입력하기 / 사진에 덧붙이기</summary>
+      <p class="hint">한 줄에 하나씩 <code>이름 - 내용</code> 형식으로 적어 주세요. 같은 이름이 여러 줄 나와도 됩니다.</p>
+      <textarea id="manual-text" rows="6" placeholder="김손녀 - 점심을 모두 다 드심&#10;이손자 - 노래 프로그램, 삶의 만족도 향상&#10;김복순 - 평소보다 말을 많이 하심"></textarea>
+    </details>
+
+    <div class="actions">
+      <button type="button" class="btn primary" id="btn-read">
+        <span class="btn-label">메모 판독하기</span>
+      </button>
+      <button type="button" class="btn ghost" id="btn-clear-input">모두 지우기</button>
+    </div>
+    <p class="err" id="read-error" hidden></p>
+  </section>
+
+  <!-- ===== 2단계 : 판독 결과 확인 ===== -->
+  <section class="card" id="step-review" hidden>
+    <div class="step-head">
+      <span class="step-no">2</span>
+      <div>
+        <h2>판독 결과 확인</h2>
+        <p class="step-desc">잘못 읽은 글자가 있으면 여기서 고친 뒤 다음으로 넘어가세요.</p>
+      </div>
+    </div>
+
+    <div class="review-meta" id="review-meta"></div>
+    <div class="items" id="items"></div>
+
+    <div class="actions">
+      <button type="button" class="btn ghost" id="btn-add-item">+ 줄 추가</button>
+      <button type="button" class="btn primary" id="btn-generate">
+        <span class="btn-label">수급자별 기록 만들기</span>
+      </button>
+    </div>
+    <p class="err" id="gen-error" hidden></p>
+  </section>
+
+  <!-- ===== 3단계 : 수급자별 결과 ===== -->
+  <section class="card" id="step-result" hidden>
+    <div class="step-head">
+      <span class="step-no">3</span>
+      <div>
+        <h2>수급자별 기록</h2>
+        <p class="step-desc">내용을 확인·수정한 뒤 <b>복사</b>를 눌러 케어포 입력칸에 붙여 넣으세요.</p>
+      </div>
+    </div>
+    <p class="result-summary" id="result-summary"></p>
+    <div class="results" id="results"></div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <p>사진과 기록은 이 기기의 브라우저에만 저장되며 서버로 보내지 않습니다. 판독에 쓰는 사진만 Anthropic API로 직접 전송됩니다.</p>
+</footer>
+
+<!-- ===== 설정 ===== -->
+<dialog id="settings-dlg">
+  <form method="dialog" class="dlg-form">
+    <h2>설정</h2>
+
+    <label class="field">
+      <span>Anthropic API 키</span>
+      <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+      <small>이 브라우저에만 저장됩니다. <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">키 발급받기</a></small>
+    </label>
+
+    <label class="field">
+      <span>모델</span>
+      <select id="model">
+        <option value="claude-opus-5-5">Opus 5.5 — 가장 정확 (권장)</option>
+        <option value="claude-sonnet-5-5">Sonnet 5.5 — 보통, 저렴</option>
+        <option value="claude-haiku-5-5">Haiku 5.5 — 가장 저렴</option>
+      </select>
+      <small>손글씨가 흐리면 Opus 5.5를 쓰는 편이 잘 읽습니다.</small>
+    </label>
+
+    <label class="field">
+      <span>작성자 이름</span>
+      <input type="text" id="writer" placeholder="예: 장○진">
+    </label>
+
+    <label class="field">
+      <span>수급자 명단</span>
+      <textarea id="roster" rows="5" placeholder="A김손녀&#10;A김여옥&#10;ㄱ이은정"></textarea>
+      <small>한 줄에 한 명. 적어 두면 메모의 이름을 명단에 맞춰 정리해 줍니다. 비워 두어도 됩니다.</small>
+    </label>
+
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="btn-forget">저장된 내용 삭제</button>
+      <button type="submit" class="btn primary" value="save">저장</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
