@@ -37,6 +37,7 @@ const $ = (id) => document.getElementById(id);
 const el = {
   date: $("record-date"),
   periodStart: $("period-start"),
+  periodClear: $("period-clear"),
   periodNote: $("period-note"),
   openSettings: $("open-settings"),
   noticeOpenSettings: $("notice-open-settings"),
@@ -156,6 +157,8 @@ function syncPeriod({ notify = false } = {}) {
 
   el.periodNote.textContent =
     period.days > 1 ? `${period.label} · ${period.days}일치` : "";
+  // 폰의 날짜 입력칸은 한 번 고르면 비울 길이 없는 경우가 많아 버튼으로 되돌립니다.
+  el.periodClear.hidden = !el.periodStart.value;
 }
 
 let toastTimer;
@@ -1414,6 +1417,12 @@ el.date.addEventListener("change", () => {
 });
 el.periodStart.addEventListener("change", () => {
   syncPeriod({ notify: true });
+  persistDraft();
+  renderResults();
+});
+el.periodClear.addEventListener("click", () => {
+  el.periodStart.value = "";
+  syncPeriod();
   persistDraft();
   renderResults();
 });
