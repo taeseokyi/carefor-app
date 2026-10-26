@@ -59,6 +59,9 @@
 
 * { box-sizing: border-box; }
 
+/* display 를 지정한 요소에도 hidden 속성이 통하도록 합니다. */
+[hidden] { display: none !important; }
+
 html { -webkit-text-size-adjust: 100%; }
 
 body {
@@ -432,6 +435,20 @@ textarea:focus, input:focus, select:focus {
 }
 
 /* ---------- 결과 ---------- */
+/* ---------- 모드별 표시 ---------- */
+body[data-mode="api"] .only-subscription,
+body[data-mode="subscription"] .only-api { display: none !important; }
+
+.mode-hint {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  background: var(--brand-soft);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: .88rem;
+  line-height: 1.6;
+}
+
 .result-summary {
   margin: 0 0 12px;
   font-size: .85rem;
@@ -468,6 +485,16 @@ textarea:focus, input:focus, select:focus {
   font-size: .78rem;
   color: var(--text-dim);
   font-weight: 500;
+}
+
+.uncertain-flag {
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 1px 9px;
 }
 
 .person-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 14px; }

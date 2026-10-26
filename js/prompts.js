@@ -239,6 +239,157 @@ export const WRITE_SCHEMA = {
   additionalProperties: false,
 };
 
+// ---------- 구독 모드 : Claude 앱에 붙여넣을 프롬프트 ----------
+
+/**
+ * API 키 없이 Claude 앱(구독)에서 한 번에 처리하기 위한 프롬프트를 만듭니다.
+ * 판독과 작성을 한 번에 시키고, 결과를 JSON 한 덩어리로 받아 앱이 다시 읽어 들입니다.
+ */
+export function buildHandoffPrompt({
+  dateLabel,
+  roster,
+  manualText,
+  styleGuide,
+}) {
+  const parts = [];
+
+  parts.push(
+    `당신은 요양보호사의 급여제공기록 작성을 돕는 보조자입니다.
+첨부한 사진은 오늘 업무 중 손으로 적은 메모입니다. 이 메모를 읽어
+수급자별로 장기요양 기록 양식의 세 칸을 채워 주세요.
+
+기록일: ${dateLabel}`
+  );
+
+  parts.push(`[메모 읽는 법]
+- 메모는 "수급자 이름 - 관찰/특이 사항" 형태의 줄로 되어 있습니다.
+- 같은 이름이 여러 줄에 나오면 그 사람의 메모를 모두 모아 함께 봅니다.
+- 여러 이름이 중괄호·괄호·세로선으로 묶여 하나의 내용에 연결된 경우,
+  묶인 사람 각각에게 그 내용이 해당합니다.
+- 글머리 기호(o, ·, -), 날짜 칸, 인쇄된 양식 글자는 내용에서 제외합니다.
+- 글자가 흐려 확실하지 않으면 추측하되, 해당 수급자의 uncertain을 true로 표시해 주세요.`);
+
+  parts.push(`[칸별 기준]
+1. physical — 신체활동 특이사항
+   세면·구강관리·목욕·식사·간식·화장실 이용·배설·이동·보행·체위변경·
+   신체기능 유지증진 활동에서 관찰된 내용.
+2. cognitive — 인지관리 특이사항
+   대화와 의사표현, 기억력, 지남력, 정서 상태, 프로그램 참여 태도와 반응.
+3. state_change — 상태변화 기록
+   "{이름} 수급자 ${dateLabel}" 로 시작해 그날 전체를 요약. 앞의 두 칸을
+   그대로 이어 붙이지 말고 한 번에 설명하는 문장으로 다시 씁니다.`);
+
+  parts.push(`[문체]
+  "A홍길동 수급자 2026년 10월 26일 점심 일반식 제공함. 배식된 정량 100% 모두 섭취 완료하였으며
+   식사 도중 특이사항이나 오심 및 구토 증상 관찰되지 않음."
+
+- 제공한 급여를 먼저 밝히고("~ 제공함", "~ 지원함") 결과와 관찰 소견을 잇습니다.
+- "~함", "~음", "~됨", "~않음"으로 끝내는 기록체를 씁니다. "~했습니다"는 쓰지 않습니다.
+- 문장을 이을 때는 "~하였으며", "~하였고"를 씁니다.
+- 수량은 "정량 100%", "1인분", "3회"처럼 구체적으로 적습니다.
+- 이상이 없었다는 것도 증상명을 들어 적습니다.
+  식사 → "오심 및 구토 증상 관찰되지 않음" / 이동 → "통증 및 어지럼 호소 없음"
+  배설 → "배뇨통 호소 없음" / 프로그램 → "거부나 위축된 모습 관찰되지 않음"
+- 각 칸 1~2문장. 메모가 많은 날에만 3문장까지.`);
+
+  parts.push(`[반드시 지킬 것]
+- 메모에 적힌 활동에 대해 "이상 없음"을 적는 것은 괜찮지만,
+  메모에 없는 활동·사건·수치·시간을 지어내지 마세요.
+- 식사 종류(일반식·죽식 등)는 메모에 적혀 있을 때만 씁니다.
+- 근거가 없는 칸은 빈 문자열("")로 두세요. 억지로 채우지 마세요.
+- 수급자는 "{이름} 수급자"로 씁니다. "어르신", "환자"는 쓰지 않습니다.`);
+
+  if (roster?.length) {
+    parts.push(
+      `[수급자 명단]\n${roster.join("\n")}\n\n` +
+        `이름은 이 명단의 표기에 맞춰 주세요. 명단에 없는 이름은 메모에 적힌 대로 두세요.`
+    );
+  }
+
+  if (manualText?.trim()) {
+    parts.push(
+      `[사진 외에 직접 적은 메모]\n${manualText.trim()}\n\n` +
+        `이 내용도 함께 반영해 주세요.`
+    );
+  }
+
+  if (styleGuide?.trim()) {
+    parts.push(
+      `[작성자 문체 지침 — 위 문체 규칙보다 우선합니다]\n${styleGuide.trim()}`
+    );
+  }
+
+  parts.push(`[답변 형식 — 매우 중요]
+설명이나 인사말 없이, 아래 형태의 JSON 하나만 코드블록으로 출력해 주세요.
+
+\`\`\`json
+{
+  "records": [
+    {
+      "name": "수급자 이름",
+      "notes": ["메모에서 읽어 낸 내용", "두 번째 메모"],
+      "uncertain": false,
+      "physical": "신체활동 특이사항 문장",
+      "cognitive": "인지관리 특이사항 문장",
+      "state_change": "상태변화 기록 문장"
+    }
+  ]
+}
+\`\`\``);
+
+  return parts.join("\n\n");
+}
+
+/**
+ * Claude 앱이 돌려준 답을 읽어 들입니다.
+ * 코드블록이나 앞뒤 설명이 섞여 있어도 JSON 부분만 뽑아냅니다.
+ */
+export function parseHandoffResponse(text) {
+  const raw = String(text ?? "").trim();
+  if (!raw) throw new Error("붙여 넣은 내용이 없습니다.");
+
+  const candidates = [];
+
+  // ```json ... ``` 코드블록
+  for (const match of raw.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)) {
+    candidates.push(match[1]);
+  }
+  // 코드블록이 없으면 가장 바깥 중괄호 구간
+  const first = raw.indexOf("{");
+  const last = raw.lastIndexOf("}");
+  if (first !== -1 && last > first) candidates.push(raw.slice(first, last + 1));
+  candidates.push(raw);
+
+  for (const candidate of candidates) {
+    let parsed;
+    try {
+      parsed = JSON.parse(candidate.trim());
+    } catch {
+      continue;
+    }
+
+    const records = Array.isArray(parsed) ? parsed : parsed.records;
+    if (!Array.isArray(records) || !records.length) continue;
+
+    return records
+      .filter((r) => r && typeof r === "object" && String(r.name ?? "").trim())
+      .map((r) => ({
+        name: String(r.name).trim(),
+        notes: Array.isArray(r.notes)
+          ? r.notes.map((n) => String(n).trim()).filter(Boolean)
+          : [],
+        uncertain: Boolean(r.uncertain),
+        physical: String(r.physical ?? "").trim(),
+        cognitive: String(r.cognitive ?? "").trim(),
+        state_change: String(r.state_change ?? "").trim(),
+      }));
+  }
+
+  throw new Error(
+    "답변에서 기록을 찾지 못했습니다. Claude가 보여 준 JSON 부분을 통째로 복사해 붙여 넣어 주세요."
+  );
+}
+
 export function buildWriteUserContent({ dateLabel, people }) {
   const blocks = people.map(
     (p) => `■ ${p.name}\n${p.notes.map((n) => `- ${n}`).join("\n")}`

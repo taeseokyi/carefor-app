@@ -7,6 +7,13 @@
 <meta name="description" content="손으로 적은 메모 사진을 올리면 수급자별로 신체활동 특이사항·인지관리 특이사항·상태변화 기록 문장을 만들어 줍니다.">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%238a5a2b'/%3E%3Cpath d='M9 8h11l4 4v12a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z' fill='%23fff'/%3E%3Cpath d='M11 15h10M11 19h7' stroke='%238a5a2b' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#8a5a2b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="급여기록">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -43,7 +50,12 @@
       </div>
     </div>
 
-    <div class="dropzone" id="dropzone" tabindex="0" role="button"
+    <p class="mode-hint only-subscription" id="subscription-hint">
+      사진은 이 앱이 아니라 <b>Claude 앱에 직접</b> 올립니다.
+      아래 버튼으로 프롬프트를 복사해 Claude 앱에 붙여 넣고, 메모 사진을 함께 보내세요.
+    </p>
+
+    <div class="dropzone only-api" id="dropzone" tabindex="0" role="button"
          aria-label="사진 선택 또는 끌어다 놓기">
       <div class="dropzone-inner">
         <div class="dz-icon">📷</div>
@@ -53,7 +65,7 @@
       <input type="file" id="file-input" accept="image/*" multiple hidden>
     </div>
 
-    <div class="thumbs" id="thumbs" hidden></div>
+    <div class="thumbs only-api" id="thumbs" hidden></div>
 
     <details class="manual" id="manual-wrap">
       <summary>사진 대신 직접 입력하기 / 사진에 덧붙이기</summary>
@@ -62,16 +74,41 @@
     </details>
 
     <div class="actions">
-      <button type="button" class="btn primary" id="btn-read">
+      <button type="button" class="btn primary only-api" id="btn-read">
         <span class="btn-label">메모 판독하기</span>
+      </button>
+      <button type="button" class="btn primary copy only-subscription" id="btn-copy-prompt">
+        Claude에 보낼 프롬프트 복사
       </button>
       <button type="button" class="btn ghost" id="btn-clear-input">모두 지우기</button>
     </div>
     <p class="err" id="read-error" hidden></p>
   </section>
 
-  <!-- ===== 2단계 : 판독 결과 확인 ===== -->
-  <section class="card" id="step-review" hidden>
+  <!-- ===== 구독 모드 : Claude 답변 받아오기 ===== -->
+  <section class="card only-subscription" id="step-paste">
+    <div class="step-head">
+      <span class="step-no">2</span>
+      <div>
+        <h2>Claude 답변 붙여 넣기</h2>
+        <p class="step-desc">
+          Claude 앱이 보여 준 JSON을 통째로 복사해 아래에 붙여 넣으세요.
+          코드블록의 복사 버튼을 쓰시면 편합니다.
+        </p>
+      </div>
+    </div>
+
+    <textarea id="paste-input" rows="6"
+      placeholder='{ "records": [ { "name": "A홍길동", ... } ] }'></textarea>
+
+    <div class="actions">
+      <button type="button" class="btn primary" id="btn-load-paste">기록 불러오기</button>
+    </div>
+    <p class="err" id="paste-error" hidden></p>
+  </section>
+
+  <!-- ===== 2단계 : 판독 결과 확인 (API 모드) ===== -->
+  <section class="card only-api" id="step-review" hidden>
     <div class="step-head">
       <span class="step-no">2</span>
       <div>
@@ -117,12 +154,21 @@
     <h2>설정</h2>
 
     <label class="field">
+      <span>작동 방식</span>
+      <select id="mode">
+        <option value="subscription">Claude 앱으로 — 구독만 쓰고 추가 결제 없음</option>
+        <option value="api">API 키로 — 앱 안에서 자동 처리</option>
+      </select>
+      <small id="mode-note"></small>
+    </label>
+
+    <label class="field" id="field-api-key">
       <span>Anthropic API 키</span>
       <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
       <small>이 브라우저에만 저장됩니다. <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">키 발급받기</a></small>
     </label>
 
-    <label class="field">
+    <label class="field" id="field-model">
       <span>모델</span>
       <select id="model">
         <option value="claude-opus-5-5">Opus 5.5 — 가장 정확 (권장)</option>
@@ -159,5 +205,15 @@
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script type="module" src="js/main.js"></script>
+<script>
+  // 오프라인에서도 화면이 뜨도록 서비스 워커를 등록합니다.
+  if ("serviceWorker" in navigator) {
+    addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(() => {
+        /* 등록에 실패해도 앱은 그대로 동작합니다 */
+      });
+    });
+  }
+</script>
 </body>
 </html>

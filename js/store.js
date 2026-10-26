@@ -4,6 +4,9 @@ const SETTINGS_KEY = "carefor.settings.v1";
 const DRAFT_KEY = "carefor.draft.v1";
 
 const DEFAULTS = {
+  // "subscription" = Claude 앱에 붙여넣어 쓰는 방식(추가 결제 없음)
+  // "api"          = 앱이 Anthropic API를 직접 호출
+  mode: "subscription",
   apiKey: "",
   model: "claude-opus-5-5",
   writer: "",

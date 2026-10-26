@@ -1,4 +1,5 @@
 import { readNotes, writeRecords } from "./api.js";
+import { buildHandoffPrompt, parseHandoffResponse } from "./prompts.js";
 import {
   loadSettings,
   saveSettings,
@@ -34,8 +35,14 @@ const el = {
   manualWrap: $("manual-wrap"),
   manualText: $("manual-text"),
   btnRead: $("btn-read"),
+  btnCopyPrompt: $("btn-copy-prompt"),
   btnClearInput: $("btn-clear-input"),
   readError: $("read-error"),
+
+  stepPaste: $("step-paste"),
+  pasteInput: $("paste-input"),
+  btnLoadPaste: $("btn-load-paste"),
+  pasteError: $("paste-error"),
 
   stepReview: $("step-review"),
   reviewMeta: $("review-meta"),
@@ -51,6 +58,10 @@ const el = {
   dlg: $("settings-dlg"),
   apiKey: $("api-key"),
   model: $("model"),
+  mode: $("mode"),
+  modeNote: $("mode-note"),
+  fieldApiKey: $("field-api-key"),
+  fieldModel: $("field-model"),
   writer: $("writer"),
   roster: $("roster"),
   styleGuide: $("style-guide"),
@@ -114,7 +125,24 @@ function setBusy(button, busy, busyLabel) {
 
 // ---------- 설정 ----------
 
+const MODE_NOTES = {
+  subscription:
+    "Claude 앱(웹·휴대폰)에 프롬프트와 사진을 직접 보내고, 답변만 이 앱으로 가져옵니다. 구독 외에 드는 비용이 없습니다.",
+  api: "이 앱이 Anthropic API를 직접 불러 사진까지 한 번에 처리합니다. 쓴 만큼 API 요금이 듭니다.",
+};
+
+function applyMode() {
+  const mode = state.settings.mode;
+  document.body.dataset.mode = mode;
+  el.modeNote.textContent = MODE_NOTES[mode] ?? "";
+
+  const isApi = mode === "api";
+  el.fieldApiKey.hidden = !isApi;
+  el.fieldModel.hidden = !isApi;
+}
+
 function applySettingsToForm() {
+  el.mode.value = state.settings.mode;
   el.apiKey.value = state.settings.apiKey;
   el.model.value = state.settings.model;
   el.writer.value = state.settings.writer;
@@ -123,7 +151,9 @@ function applySettingsToForm() {
 }
 
 function refreshSetupNotice() {
-  el.setupNotice.hidden = Boolean(state.settings.apiKey);
+  // API 키가 필요한 건 API 모드뿐입니다.
+  el.setupNotice.hidden =
+    state.settings.mode !== "api" || Boolean(state.settings.apiKey);
 }
 
 function openSettings() {
@@ -138,6 +168,7 @@ el.dlg.addEventListener("close", () => {
   if (el.dlg.returnValue !== "save") return;
 
   state.settings = {
+    mode: el.mode.value,
     apiKey: el.apiKey.value.trim(),
     model: el.model.value,
     writer: el.writer.value.trim(),
@@ -149,6 +180,7 @@ el.dlg.addEventListener("close", () => {
   };
 
   const ok = saveSettings(state.settings);
+  applyMode();
   refreshSetupNotice();
   toast(ok ? "설정을 저장했습니다" : "설정은 적용했지만 이 브라우저에 저장하지 못했습니다");
 });
@@ -160,6 +192,7 @@ el.btnForget.addEventListener("click", () => {
   state.records = [];
   state.items = [];
   applySettingsToForm();
+  applyMode();
   refreshSetupNotice();
   render();
   el.dlg.close();
@@ -350,6 +383,67 @@ el.btnRead.addEventListener("click", async () => {
   } finally {
     setBusy(el.btnRead, false);
   }
+});
+
+// ---------- 구독 모드 : 프롬프트 복사 · 답변 불러오기 ----------
+
+el.btnCopyPrompt.addEventListener("click", async () => {
+  showError(el.readError, "");
+
+  const prompt = buildHandoffPrompt({
+    dateLabel: dateLabel(el.date.value),
+    roster: state.settings.roster,
+    manualText: el.manualText.value.trim(),
+    styleGuide: state.settings.styleGuide,
+  });
+
+  const ok = await copyText(prompt);
+  if (!ok) {
+    showError(
+      el.readError,
+      "복사하지 못했습니다. 아래 상자를 길게 눌러 직접 복사해 주세요."
+    );
+    el.pasteInput.value = prompt;
+    return;
+  }
+
+  el.btnCopyPrompt.textContent = "복사됨 ✓";
+  setTimeout(() => {
+    el.btnCopyPrompt.textContent = "Claude에 보낼 프롬프트 복사";
+  }, 1800);
+  toast("Claude 앱에 붙여 넣고 메모 사진을 함께 보내세요");
+});
+
+el.btnLoadPaste.addEventListener("click", () => {
+  showError(el.pasteError, "");
+
+  let records;
+  try {
+    records = parseHandoffResponse(el.pasteInput.value);
+  } catch (error) {
+    showError(el.pasteError, error.message);
+    return;
+  }
+
+  if (!records.length) {
+    showError(el.pasteError, "불러올 수급자가 없습니다.");
+    return;
+  }
+
+  state.records = records;
+  state.items = [];
+  state.unreadable = [];
+
+  render();
+  persistDraft();
+
+  const uncertain = records.filter((r) => r.uncertain).length;
+  toast(
+    uncertain
+      ? `${records.length}명 불러옴 · ${uncertain}명은 확인 필요`
+      : `${records.length}명 불러왔습니다`
+  );
+  el.stepResult.scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
 // ---------- 2단계 : 판독 결과 편집 ----------
@@ -544,18 +638,30 @@ function renderResults() {
 
       const count = document.createElement("span");
       count.className = "count";
-      count.textContent = `메모 ${record.notes.length}줄`;
+      count.textContent = record.notes.length
+        ? `메모 ${record.notes.length}줄`
+        : "";
 
       head.append(title, count);
+
+      if (record.uncertain) {
+        const flag = document.createElement("span");
+        flag.className = "uncertain-flag";
+        flag.textContent = "확인 필요";
+        flag.title = "글씨가 흐려 잘못 읽었을 수 있습니다";
+        head.append(flag);
+      }
 
       const body = document.createElement("div");
       body.className = "person-body";
 
-      const source = document.createElement("div");
-      source.className = "source-notes";
-      source.innerHTML = "<b>메모</b> · ";
-      source.append(record.notes.join(" / "));
-      body.append(source);
+      if (record.notes.length) {
+        const source = document.createElement("div");
+        source.className = "source-notes";
+        source.innerHTML = "<b>메모</b> · ";
+        source.append(record.notes.join(" / "));
+        body.append(source);
+      }
 
       for (const field of FIELDS) {
         body.append(renderField(record, field));
@@ -695,6 +801,7 @@ el.date.addEventListener("change", () => {
 });
 
 applySettingsToForm();
+applyMode();
 refreshSetupNotice();
 renderRosterDatalist();
 restoreDraft();
