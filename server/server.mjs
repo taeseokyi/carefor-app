@@ -10,19 +10,26 @@
 //   CLAUDE_BIN      기본 claude
 //   CLAUDE_MODEL    예: opus / sonnet (생략하면 CLI 기본값)
 //   KEEP_DAYS       오래된 작업 정리 기준, 기본 14일
+//   TLS             기본 on. 자체 서명 인증서로 https 를 제공합니다. off 로 두면 http
+//   CERT_DIR        인증서 보관 위치, 기본 server/certs
+//   TLS_HOSTS       인증서에 추가로 넣을 IP/호스트명 (쉼표 구분)
 
-import { createServer } from "node:http";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 
 import { JobStore } from "./store.mjs";
 import { ClaudeRunner } from "./runner.mjs";
+import { prepareTls } from "./tls.mjs";
 
 const PORT = Number(process.env.PORT) || 8787;
 const TOKEN = process.env.CAREFOR_TOKEN || "";
 const DATA_DIR = resolve(process.env.DATA_DIR || "./data");
 const KEEP_DAYS = Number(process.env.KEEP_DAYS) || 14;
+const USE_TLS = !/^(0|off|false|no)$/i.test(process.env.TLS ?? "");
+const CERT_DIR = resolve(process.env.CERT_DIR || join(import.meta.dirname, "certs"));
 const MAX_UPLOAD = 25 * 1024 * 1024; // 사진 여러 장을 감안한 한도
 
 if (!TOKEN) {
@@ -101,6 +108,8 @@ const CORS = {
   "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
   "access-control-allow-headers": "content-type,authorization",
   "access-control-max-age": "86400",
+  // 공개 사이트(GitHub Pages)에서 집 안 IP 로 부르는 요청을 크롬이 따로 묻습니다.
+  "access-control-allow-private-network": "true",
 };
 
 function send(res, status, body, extra = {}) {
@@ -147,13 +156,31 @@ const EXT = {
   "image/heic": "heic",
 };
 
-const server = createServer(async (req, res) => {
-  const url = new URL(req.url, `http://localhost:${PORT}`);
+const tls = USE_TLS
+  ? await prepareTls(CERT_DIR, { extraHosts: process.env.TLS_HOSTS || "" })
+  : null;
+
+const SCHEME = tls ? "https" : "http";
+
+const handler = async (req, res) => {
+  const url = new URL(req.url, `${SCHEME}://localhost:${PORT}`);
   const path = url.pathname.replace(/\/+$/, "") || "/";
 
   if (req.method === "OPTIONS") {
     res.writeHead(204, CORS);
     res.end();
+    return;
+  }
+
+  // 폰에 설치할 루트 인증서. 공개해도 되는 파일이므로 토큰 없이 내려 줍니다.
+  if (tls && path === "/ca.crt") {
+    res.writeHead(200, {
+      "content-type": "application/x-x509-ca-cert",
+      "content-disposition": 'attachment; filename="carefor-ca.crt"',
+      "cache-control": "no-store",
+      ...CORS,
+    });
+    res.end(tls.caPem);
     return;
   }
 
@@ -252,7 +279,11 @@ const server = createServer(async (req, res) => {
     console.error(error);
     send(res, 500, { error: error.message });
   }
-});
+};
+
+const server = tls
+  ? createHttpsServer({ key: tls.key, cert: tls.cert }, handler)
+  : createHttpServer(handler);
 
 function summary(meta) {
   return {
@@ -271,14 +302,34 @@ function summary(meta) {
 server.listen(PORT, "0.0.0.0", async () => {
   const removed = await store.prune(KEEP_DAYS).catch(() => 0);
   console.log(`요양급여 기록 백엔드가 떴습니다.`);
-  console.log(`  주소   http://localhost:${PORT}`);
+  console.log(`  주소   ${SCHEME}://localhost:${PORT}`);
   console.log(`  자료   ${DATA_DIR}`);
   console.log(`  claude ${process.env.CLAUDE_BIN || "claude"}`);
   if (removed) console.log(`  ${KEEP_DAYS}일이 지난 작업 ${removed}건을 정리했습니다.`);
-  console.log(
-    `\n폰에서 쓰려면 https 주소가 필요합니다. 터널을 함께 띄우세요:\n` +
-      `  cloudflared tunnel --url http://localhost:${PORT}\n`
-  );
+  if (tls) {
+    const lan = tls.hosts.ips.filter((ip) => ip !== "127.0.0.1");
+    console.log(`\n자체 서명 인증서로 https 를 제공합니다.`);
+    console.log(`  인증서 ${CERT_DIR}`);
+    console.log(`  폰 설정에 넣을 주소: ${lan.map((ip) => `https://${ip}:${PORT}`).join("  ")}`);
+    console.log(
+      `  폰에서 처음 한 번 https://<주소>:${PORT}/ca.crt 를 받아 루트 인증서로 설치하세요.` +
+        (tls.caCreated ? "\n  (루트 인증서를 새로 만들었습니다)" : "")
+    );
+    if (process.platform === "win32") {
+      console.log(
+        `  폰이 못 붙으면 Windows 방화벽이 8787 을 막고 있는 것입니다. server/README.md 참고.\n`
+      );
+    } else {
+      console.log(
+        `  WSL 은 LAN 에서 바로 안 보이므로 Windows 쪽 포트 전달이 필요합니다. server/README.md 참고.\n`
+      );
+    }
+  } else {
+    console.log(
+      `\n폰에서 쓰려면 https 주소가 필요합니다. 터널을 함께 띄우세요:\n` +
+        `  cloudflared tunnel --url http://localhost:${PORT}\n`
+    );
+  }
 });
 
 for (const sig of ["SIGINT", "SIGTERM"]) {

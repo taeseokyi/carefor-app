@@ -5,6 +5,7 @@
 
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
+import { platform } from "node:os";
 
 import { buildHandoffPrompt, HANDOFF_SCHEMA } from "../js/prompts.js";
 
@@ -12,8 +13,10 @@ export class ClaudeRunner {
   /**
    * bin 에는 인자를 함께 적을 수 있습니다.
    *   "claude"                    WSL 안에서 그대로
-   *   "wsl claude"                Windows 쪽에서 WSL 의 claude 를 부를 때
-   *                               (이때 사진 경로도 WSL 경로여야 합니다)
+   *   "wsl -d Ubuntu -e /home/me/.local/bin/claude"
+   *                               Windows 쪽에서 WSL 의 claude 를 부를 때.
+   *                               사진 경로는 자동으로 /mnt/c/... 로 바꿔 넘깁니다.
+   *                               (wsl 이 비로그인 셸이라 PATH 에 claude 가 없을 수 있으니 절대 경로 권장)
    */
   constructor({ bin = "claude", model, timeoutMs = 10 * 60 * 1000, cwd }) {
     const [command, ...prefix] = String(bin).trim().split(/\s+/);
@@ -22,6 +25,15 @@ export class ClaudeRunner {
     this.model = model;
     this.timeoutMs = timeoutMs;
     this.cwd = cwd;
+    this.viaWsl = platform() === "win32" && /^wsl(\.exe)?$/i.test(command);
+  }
+
+  // Windows 경로를 WSL 이 읽는 경로로. C:\Temp\x.jpg -> /mnt/c/Temp/x.jpg
+  mapPath(p) {
+    if (!this.viaWsl) return p;
+    const m = /^([A-Za-z]):[\\/](.*)$/.exec(p);
+    if (!m) return p;
+    return `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, "/")}`;
   }
 
   buildArgs(prompt) {
@@ -57,7 +69,7 @@ export class ClaudeRunner {
       roster: meta.roster,
       manualText: meta.manualText,
       styleGuide: meta.styleGuide,
-      photoPaths,
+      photoPaths: photoPaths.map((p) => this.mapPath(p)),
     });
 
     const { stdout, stderr, code } = await this.#spawn(this.buildArgs(prompt));
