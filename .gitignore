@@ -21,3 +21,6 @@ node_modules/
 
 # 자체 서명 인증서 (개인 키 포함)
 server/certs/
+server.log
+server.pid
+server.err.log
