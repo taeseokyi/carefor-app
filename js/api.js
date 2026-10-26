@@ -5,7 +5,7 @@ import {
   READ_SYSTEM,
   READ_SCHEMA,
   buildReadUserContent,
-  WRITE_SYSTEM,
+  buildWriteSystem,
   WRITE_SCHEMA,
   buildWriteUserContent,
 } from "./prompts.js";
@@ -161,11 +161,17 @@ export async function readNotes({ apiKey, model, images, manualText, roster }) {
 /**
  * 2단계 — 수급자별 메모를 기록 양식 세 칸의 문장으로 만듭니다.
  */
-export async function writeRecords({ apiKey, model, dateLabel, people }) {
+export async function writeRecords({
+  apiKey,
+  model,
+  dateLabel,
+  people,
+  styleGuide,
+}) {
   const { data, usage } = await callJson({
     apiKey,
     model,
-    system: WRITE_SYSTEM,
+    system: buildWriteSystem(styleGuide),
     content: buildWriteUserContent({ dateLabel, people }),
     schema: WRITE_SCHEMA,
     effort: "high",

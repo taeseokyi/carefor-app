@@ -189,6 +189,24 @@ ${CORE_RULES}
 → state_change: "김영수 수급자 2026년 10월 26일 평소 대비 말수가 늘어난 모습 관찰됨. 의사표현 명확하였으며 정서 상태 안정적으로 유지됨."
 `.trim();
 
+/**
+ * 작성자가 설정에 적어 둔 문체 지침을 기본 규칙 뒤에 붙입니다.
+ * 뒤에 오는 지침이 앞의 기본값을 덮도록 하되, 사실 왜곡만은 막습니다.
+ */
+export function buildWriteSystem(styleGuide) {
+  const extra = styleGuide?.trim();
+  if (!extra) return WRITE_SYSTEM;
+
+  return `${WRITE_SYSTEM}
+
+[작성자 문체 지침 — 위 규칙보다 우선한다]
+아래는 이 기록을 쓰는 요양보호사가 직접 정해 둔 규칙입니다.
+위에 적힌 문체·분량·칸 분류 기준과 어긋나는 부분이 있으면 아래를 따릅니다.
+다만 "메모에 없는 활동·사건·수치를 지어내지 않는다"는 원칙은 어떤 경우에도 지킵니다.
+
+${extra}`;
+}
+
 export const WRITE_SCHEMA = {
   type: "object",
   properties: {

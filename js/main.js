@@ -53,6 +53,7 @@ const el = {
   model: $("model"),
   writer: $("writer"),
   roster: $("roster"),
+  styleGuide: $("style-guide"),
   btnForget: $("btn-forget"),
 
   toast: $("toast"),
@@ -118,6 +119,7 @@ function applySettingsToForm() {
   el.model.value = state.settings.model;
   el.writer.value = state.settings.writer;
   el.roster.value = state.settings.roster.join("\n");
+  el.styleGuide.value = state.settings.styleGuide;
 }
 
 function refreshSetupNotice() {
@@ -143,6 +145,7 @@ el.dlg.addEventListener("close", () => {
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean),
+    styleGuide: el.styleGuide.value.trim(),
   };
 
   const ok = saveSettings(state.settings);
@@ -485,6 +488,7 @@ el.btnGenerate.addEventListener("click", async () => {
       model: state.settings.model,
       dateLabel: dateLabel(el.date.value),
       people,
+      styleGuide: state.settings.styleGuide,
     });
 
     // 요청한 순서를 기준으로 맞춰, 빠진 사람이 있어도 칸은 만들어 둡니다.

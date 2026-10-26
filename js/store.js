@@ -8,6 +8,7 @@ const DEFAULTS = {
   model: "claude-opus-5-5",
   writer: "",
   roster: [],
+  styleGuide: "",
 };
 
 function read(key, fallback) {

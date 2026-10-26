@@ -540,6 +540,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 
 .field small { color: var(--text-dim); font-size: .78rem; line-height: 1.5; }
 
+.field .inline-note { font-weight: 400; }
+
 .field a { color: var(--brand); }
 
 .dlg-actions {
