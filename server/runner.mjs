@@ -139,6 +139,9 @@ export class ClaudeRunner {
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
+        // wsl.exe 경유일 때도 이 kill 로 WSL 안의 claude 까지 함께 끝납니다.
+        // (wsl.exe 가 끝나면 그 세션의 프로세스가 정리되는 것을 확인함. 별도 pkill 은 하지 않습니다 —
+        //  패턴 kill 은 엉뚱한 프로세스를 잡을 수 있어서)
         child.kill("SIGTERM");
         reject(
           new Error(

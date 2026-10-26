@@ -1,7 +1,7 @@
 // 오프라인에서도 화면이 뜨도록 앱 파일을 캐시해 둡니다.
 // 기록 내용은 캐시하지 않습니다 (브라우저 저장소에만 있습니다).
 
-const VERSION = "v5";
+const VERSION = "v6";
 const CACHE = `carefor-${VERSION}`;
 
 const ASSETS = [
@@ -16,6 +16,7 @@ const ASSETS = [
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
+  "./icons/icon-maskable-512.png",
 ];
 
 self.addEventListener("install", (event) => {
@@ -69,9 +70,13 @@ self.addEventListener("fetch", (event) => {
         return response;
       })
       .catch(() =>
-        caches
-          .match(request)
-          .then((hit) => hit ?? caches.match("./index.html"))
+        caches.match(request).then((hit) => {
+          if (hit) return hit;
+          // 화면 이동만 index.html 로 대신합니다. 스크립트·스타일이 빠졌을 때 HTML 을 돌려주면
+          // 알 수 없는 오류로 보이기 때문입니다.
+          if (request.mode === "navigate") return caches.match("./index.html");
+          return Response.error();
+        })
       )
   );
 });

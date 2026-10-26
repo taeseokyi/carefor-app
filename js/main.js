@@ -5,7 +5,11 @@ import {
   submitJob,
   listJobs,
   getJob,
+  deleteJob,
   waitForJob,
+  normalizeBackendUrl,
+  isDirectHost,
+  caCertUrl,
 } from "./backend.js";
 import {
   loadSettings,
@@ -57,6 +61,12 @@ const el = {
   connConnect: $("conn-connect"),
   connCancel: $("conn-cancel"),
   recentUrls: $("recent-urls"),
+  connCertToggle: $("conn-cert-toggle"),
+  connCert: $("conn-cert"),
+  certSteps: $("cert-steps"),
+  connCertDownload: $("conn-cert-download"),
+  connCertRecheck: $("conn-cert-recheck"),
+  connCertClose: $("conn-cert-close"),
   stepJobs: $("step-jobs"),
   jobList: $("job-list"),
   btnRefreshJobs: $("btn-refresh-jobs"),
@@ -163,16 +173,23 @@ const MODE_NOTES = {
   api: "이 앱이 Anthropic API를 직접 불러 사진까지 한 번에 처리합니다. 쓴 만큼 API 요금이 듭니다.",
 };
 
-function applyMode() {
-  const mode = state.settings.mode;
-  document.body.dataset.mode = mode;
+/** 설정 창 안에서 고른 작동 방식에 맞는 칸만 보여 줍니다. */
+function showFieldsFor(mode) {
   el.modeNote.textContent = MODE_NOTES[mode] ?? "";
-
   const isApi = mode === "api";
   el.fieldApiKey.hidden = !isApi;
   el.fieldModel.hidden = !isApi;
   el.fieldBackend.hidden = mode !== "local";
 }
+
+function applyMode() {
+  const mode = state.settings.mode;
+  document.body.dataset.mode = mode;
+  showFieldsFor(mode);
+}
+
+// 작동 방식을 바꾸면 저장하기 전에도 그 방식의 칸이 바로 보이게 합니다.
+el.mode.addEventListener("change", () => showFieldsFor(el.mode.value));
 
 function applySettingsToForm() {
   el.mode.value = state.settings.mode;
@@ -194,6 +211,8 @@ function refreshSetupNotice() {
 
 function openSettings() {
   applySettingsToForm();
+  // 지난번 "저장" 값이 남아 있으면 Esc 로 닫아도 저장 경로를 타므로 비웁니다.
+  el.dlg.returnValue = "";
   el.dlg.showModal();
 }
 
@@ -213,16 +232,19 @@ el.dlg.addEventListener("close", () => {
       .map((line) => line.trim())
       .filter(Boolean),
     styleGuide: el.styleGuide.value.trim(),
-    backendUrl: el.backendUrl.value.trim(),
+    backendUrl: tidyUrl(el.backendUrl.value),
     backendToken: el.backendToken.value.trim(),
     recentBackendUrls: state.settings.recentBackendUrls,
+    connectedHosts: state.settings.connectedHosts,
   };
 
   const ok = saveSettings(state.settings);
+  if (state.settings.backendUrl) rememberUrl(state.settings.backendUrl);
   applyMode();
   refreshSetupNotice();
   renderRosterDatalist();
   renderRecentUrls();
+  updateCertToggle();
   if (state.settings.mode === "local") {
     refreshConn({ quiet: true }).then((connected) => {
       if (connected) refreshJobs().catch(() => {});
@@ -237,11 +259,20 @@ el.btnForget.addEventListener("click", () => {
   state.settings = loadSettings();
   state.records = [];
   state.items = [];
+  state.unreadable = [];
+  state.images.forEach((img) => URL.revokeObjectURL(img.url));
+  state.images = [];
   applySettingsToForm();
   applyMode();
   refreshSetupNotice();
+  renderRosterDatalist();
+  renderRecentUrls();
+  renderThumbs();
   render();
-  el.dlg.close();
+  setConn("", "노트북 주소를 넣어 주세요");
+  closeCertGuide();
+  updateCertToggle();
+  el.dlg.close("forget");
   toast("저장된 내용을 지웠습니다");
 });
 
@@ -284,8 +315,15 @@ async function fileToImage(file) {
 }
 
 async function addFiles(fileList) {
-  const files = [...fileList].filter((f) => f.type.startsWith("image/"));
-  if (!files.length) return;
+  const all = [...fileList];
+  // 일부 안드로이드 파일 선택기는 type 을 비워 보내므로 확장자로도 봅니다.
+  const files = all.filter(
+    (f) => f.type.startsWith("image/") || (!f.type && /\.(jpe?g|png|webp|heic|heif|gif|bmp)$/i.test(f.name))
+  );
+  if (!files.length) {
+    if (all.length) toast("이미지 파일만 올릴 수 있습니다");
+    return;
+  }
 
   const room = MAX_IMAGES - state.images.length;
   if (room <= 0) {
@@ -365,6 +403,8 @@ el.dropzone.addEventListener("drop", (event) => {
 
 // 사진을 복사해서 바로 붙여 넣는 경우도 받아 줍니다.
 document.addEventListener("paste", (event) => {
+  // 구독 모드에서는 사진 칸이 없으므로 받지 않습니다 (보이지 않는 채로 쌓이는 것을 막음).
+  if (state.settings.mode === "subscription") return;
   const files = [...(event.clipboardData?.files ?? [])];
   if (files.length) addFiles(files);
 });
@@ -447,6 +487,93 @@ function setConn(kind, text) {
   el.connText.textContent = text;
 }
 
+/** 사람이 넣은 주소를 다듬어 돌려줍니다. 다듬을 수 없으면 넣은 그대로 둡니다. */
+function tidyUrl(input) {
+  const text = String(input ?? "").trim();
+  if (!text) return "";
+  try {
+    return normalizeBackendUrl(text);
+  } catch {
+    return text;
+  }
+}
+
+// ---------- 인증서 안내 ----------
+
+function platform() {
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/i.test(ua)) return "ios";
+  if (/Android/i.test(ua)) return "android";
+  return "desktop";
+}
+
+const CERT_STEPS = {
+  android: [
+    "아래 <b>인증서 파일 받기</b>를 누릅니다. 경고 화면이 뜨면 <b>고급 → 계속</b>으로 진행해 <code>carefor-ca.crt</code>를 받습니다.",
+    "폰 <b>설정 → 보안(또는 보안 및 개인정보 보호) → 암호화 및 사용자 인증 정보 → 인증서 설치 → CA 인증서</b>를 엽니다.",
+    "경고를 확인하고 방금 받은 <code>carefor-ca.crt</code>를 고릅니다.",
+    "이 앱으로 돌아와 <b>연결 다시 확인</b>을 누릅니다. 크롬이 로컬 네트워크 연결 권한을 물으면 허용합니다.",
+  ],
+  ios: [
+    "아래 <b>인증서 파일 받기</b>를 누릅니다. \"안전하지 않음\" 경고가 뜨면 <b>세부사항 보기 → 웹 사이트 방문</b>으로 진행합니다.",
+    "\"구성 프로파일을 다운로드하려고 합니다\" 창에서 <b>허용</b>을 누릅니다.",
+    "폰 <b>설정 → 일반 → VPN 및 기기 관리</b>에서 <code>carefor-app backend CA</code> 프로파일을 설치합니다.",
+    "<b>설정 → 일반 → 정보 → 인증서 신뢰 설정</b>에서 그 인증서를 켭니다.",
+    "이 앱으로 돌아와 <b>연결 다시 확인</b>을 누릅니다.",
+  ],
+  desktop: [
+    "아래 <b>인증서 파일 받기</b>를 누릅니다. 경고 화면이 뜨면 계속 진행해 <code>carefor-ca.crt</code>를 받습니다.",
+    "받은 파일을 열어 <b>신뢰할 수 있는 루트 인증 기관</b>에 설치합니다. (Windows: 인증서 설치 → 로컬 사용자 → 저장소 직접 선택)",
+    "브라우저를 다시 연 뒤 <b>연결 다시 확인</b>을 누릅니다.",
+  ],
+};
+
+function renderCertSteps() {
+  el.certSteps.replaceChildren(
+    ...CERT_STEPS[platform()].map((html) => {
+      const li = document.createElement("li");
+      li.innerHTML = html;
+      return li;
+    })
+  );
+}
+
+function openCertGuide() {
+  renderCertSteps();
+  el.connCert.hidden = false;
+}
+
+function closeCertGuide() {
+  el.connCert.hidden = true;
+}
+
+/** 지금 입력 중이거나 저장된 주소. 인증서 받기 버튼이 씁니다. */
+function currentUrl() {
+  return (!el.connEdit.hidden && el.connUrl.value.trim()) || state.settings.backendUrl;
+}
+
+function rememberConnected(url) {
+  if (!isDirectHost(url)) return;
+  const host = hostOf(url);
+  if (state.settings.connectedHosts.includes(host)) return;
+  state.settings = {
+    ...state.settings,
+    connectedHosts: [...state.settings.connectedHosts, host].slice(-10),
+  };
+  saveSettings(state.settings);
+}
+
+function neverConnected(url) {
+  return isDirectHost(url) && !state.settings.connectedHosts.includes(hostOf(url));
+}
+
+/** 터널 주소(https 가 이미 믿을 만함)면 인증서 버튼을 숨깁니다. */
+function updateCertToggle() {
+  const url = state.settings.backendUrl;
+  el.connCertToggle.hidden = Boolean(url) && !isDirectHost(url);
+  if (el.connCertToggle.hidden) closeCertGuide();
+}
+
 function renderRecentUrls() {
   el.recentUrls.replaceChildren(
     ...state.settings.recentBackendUrls.map((url) => {
@@ -465,6 +592,7 @@ function rememberUrl(url) {
   state.settings = { ...state.settings, backendUrl: url, recentBackendUrls: recent };
   saveSettings(state.settings);
   renderRecentUrls();
+  updateCertToggle();
 }
 
 function openConnEdit() {
@@ -492,13 +620,52 @@ async function refreshConn({ quiet = false } = {}) {
   try {
     await checkHealth(backendUrl, backendToken);
     setConn("ok", `${hostOf(backendUrl)} 연결됨`);
+    rememberConnected(backendUrl);
     closeConnEdit();
+    closeCertGuide();
     return true;
   } catch (error) {
     setConn("bad", error.message);
+    // 집 안 주소인데 한 번도 붙은 적이 없으면 인증서가 없을 가능성이 큽니다.
+    if (!quiet && error.kind === "offline" && neverConnected(backendUrl)) openCertGuide();
     return false;
   }
 }
+
+el.connCertToggle.addEventListener("click", () => {
+  if (el.connCert.hidden) openCertGuide();
+  else closeCertGuide();
+});
+
+el.connCertClose.addEventListener("click", closeCertGuide);
+
+el.connCertDownload.addEventListener("click", () => {
+  const url = currentUrl();
+  if (!url) {
+    toast("노트북 주소를 먼저 넣어 주세요");
+    openConnEdit();
+    return;
+  }
+  try {
+    // 새 탭으로 엽니다. 인증서를 아직 믿지 않는 상태라 fetch 로는 받을 수 없고,
+    // 브라우저가 경고 화면을 거쳐 내려받게 해야 합니다.
+    window.open(caCertUrl(url), "_blank", "noopener");
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
+el.connCertRecheck.addEventListener("click", async () => {
+  const typed = el.connUrl.value.trim();
+  if (!el.connEdit.hidden && typed) rememberUrl(tidyUrl(typed));
+  const ok = await refreshConn({ quiet: true });
+  if (ok) {
+    toast("노트북과 연결됐습니다");
+    refreshJobs().catch(() => {});
+  } else {
+    toast("아직 연결되지 않았습니다");
+  }
+});
 
 el.connChange.addEventListener("click", () => {
   if (el.connEdit.hidden) openConnEdit();
@@ -523,11 +690,14 @@ el.connPaste.addEventListener("click", async () => {
 });
 
 el.connConnect.addEventListener("click", async () => {
-  const url = el.connUrl.value.trim();
-  if (!url) {
-    toast("주소를 넣어 주세요");
+  let url;
+  try {
+    url = normalizeBackendUrl(el.connUrl.value);
+  } catch (error) {
+    toast(error.message);
     return;
   }
+  el.connUrl.value = url;
 
   rememberUrl(url);
 
@@ -550,7 +720,10 @@ el.connUrl.addEventListener("keydown", (event) => {
 el.btnTestBackend.addEventListener("click", async () => {
   el.backendStatus.textContent = "확인 중…";
   try {
-    await checkHealth(el.backendUrl.value.trim(), el.backendToken.value.trim());
+    const url = normalizeBackendUrl(el.backendUrl.value);
+    el.backendUrl.value = url;
+    await checkHealth(url, el.backendToken.value.trim());
+    rememberConnected(url);
     el.backendStatus.textContent = "✓ 노트북과 연결됐습니다.";
     el.backendStatus.style.color = "var(--accent)";
   } catch (error) {
@@ -714,6 +887,28 @@ async function refreshJobs() {
       badge.textContent = JOB_LABEL[job.status] ?? job.status;
 
       row.append(when, what, badge);
+
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "job-del";
+      del.textContent = "삭제";
+      del.title = "노트북에서 이 작업과 사진을 지웁니다";
+      del.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        if (!confirm("이 작업과 올린 사진을 노트북에서 지울까요?")) return;
+        try {
+          await deleteJob(backendUrl, backendToken, job.id);
+          toast("지웠습니다");
+          refreshJobs().catch(() => {});
+        } catch (error) {
+          showError(el.jobsError, error.message);
+        }
+      });
+
+      const item = document.createElement("div");
+      item.className = "job-item";
+      item.append(row, del);
+
       row.addEventListener("click", async () => {
         if (job.status === "done") {
           try {
@@ -732,7 +927,7 @@ async function refreshJobs() {
           );
         }
       });
-      return row;
+      return item;
     })
   );
 }
@@ -1167,6 +1362,7 @@ render();
 
 if (state.settings.mode === "local") {
   // 주소가 아직 없으면 입력칸을 열어 둡니다.
+  updateCertToggle();
   refreshConn().then((connected) => {
     if (connected) refreshJobs().catch(() => {});
   });

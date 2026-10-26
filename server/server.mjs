@@ -10,6 +10,7 @@
 //   CLAUDE_BIN      기본 claude
 //   CLAUDE_MODEL    예: opus / sonnet (생략하면 CLI 기본값)
 //   KEEP_DAYS       오래된 작업 정리 기준, 기본 14일
+//   MAX_UPLOAD_MB   한 번에 받는 최대 용량, 기본 200
 //   TLS             기본 on. 자체 서명 인증서로 https 를 제공합니다. off 로 두면 http
 //   CERT_DIR        인증서 보관 위치, 기본 server/certs
 //   TLS_HOSTS       인증서에 추가로 넣을 IP/호스트명 (쉼표 구분)
@@ -30,7 +31,10 @@ const DATA_DIR = resolve(process.env.DATA_DIR || "./data");
 const KEEP_DAYS = Number(process.env.KEEP_DAYS) || 14;
 const USE_TLS = !/^(0|off|false|no)$/i.test(process.env.TLS ?? "");
 const CERT_DIR = resolve(process.env.CERT_DIR || join(import.meta.dirname, "certs"));
-const MAX_UPLOAD = 25 * 1024 * 1024; // 사진 여러 장을 감안한 한도
+// 업로드 한도. 폰이 사진을 1568px JPEG 로 줄여 보내므로 12장이어도 20MB 를 넘기 어렵습니다.
+// 사용자가 용량을 신경 쓰지 않아도 되도록 넉넉히 두고, 필요하면 MAX_UPLOAD_MB 로 조정합니다.
+const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB) || 200;
+const MAX_UPLOAD = MAX_UPLOAD_MB * 1024 * 1024;
 
 if (!TOKEN) {
   console.error(
@@ -62,19 +66,20 @@ async function drain() {
   if (!meta) return;
 
   working = true;
+  let current = meta;
   try {
-    const running = await store.update(meta, {
+    current = await store.update(meta, {
       status: "running",
       startedAt: new Date().toISOString(),
     });
 
     const { records, costUsd } = await runner.run(
-      running,
-      store.photoPaths(running),
-      { logPath: store.logPath(running) }
+      current,
+      store.photoPaths(current),
+      { logPath: store.logPath(current) }
     );
 
-    await store.update(running, {
+    await store.update(current, {
       status: "done",
       records,
       costUsd,
@@ -87,7 +92,7 @@ async function drain() {
   } catch (error) {
     console.error(`[${meta.id}] 실패:`, error.message);
     await store
-      .update(meta, {
+      .update(current, {
         status: "error",
         error: error.message,
         finishedAt: new Date().toISOString(),
@@ -97,6 +102,23 @@ async function drain() {
     working = false;
     drain();
   }
+}
+
+// 서버가 꺼졌다 켜지면 메모리의 큐는 사라집니다. 끝나지 않은 작업을 파일에서 찾아 다시 줄 세웁니다.
+// (사진은 그대로 있으므로 처음부터 다시 돌리면 됩니다)
+async function recoverUnfinished() {
+  const pending = [];
+  for (const date of await store.dates()) {
+    for (const meta of await store.list(date)) {
+      if (meta.status === "queued" || meta.status === "running") pending.push(meta);
+    }
+  }
+  pending.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  for (const meta of pending) {
+    const reset = await store.update(meta, { status: "queued", startedAt: null, error: null });
+    enqueue(reset);
+  }
+  return pending.length;
 }
 
 // ---------- HTTP ----------
@@ -138,8 +160,7 @@ function readBody(req) {
     req.on("data", (c) => {
       size += c.length;
       if (size > MAX_UPLOAD) {
-        reject(new Error("업로드 용량이 너무 큽니다 (25MB 초과)."));
-        req.destroy();
+        reject(Object.assign(new Error(`업로드 용량이 너무 큽니다 (${MAX_UPLOAD_MB}MB 초과).`), { status: 413 }));
         return;
       }
       chunks.push(c);
@@ -173,7 +194,11 @@ const handler = async (req, res) => {
   }
 
   // 폰에 설치할 루트 인증서. 공개해도 되는 파일이므로 토큰 없이 내려 줍니다.
-  if (tls && path === "/ca.crt") {
+  if (path === "/ca.crt") {
+    if (!tls) {
+      send(res, 404, { error: "이 서버는 http 로 떠 있어 인증서가 없습니다. 터널 주소로 쓰는 경우 인증서 설치는 필요 없습니다." });
+      return;
+    }
     res.writeHead(200, {
       "content-type": "application/x-x509-ca-cert",
       "content-disposition": 'attachment; filename="carefor-ca.crt"',
@@ -198,26 +223,56 @@ const handler = async (req, res) => {
   try {
     // 새 작업 등록
     if (req.method === "POST" && path === "/api/jobs") {
-      const body = JSON.parse((await readBody(req)).toString("utf8"));
+      // 몸통을 읽기 전에 크기부터 봅니다. 다 받고 나서 거절하면 폰은 "연결 끊김"으로만 보입니다.
+      if (Number(req.headers["content-length"]) > MAX_UPLOAD) {
+        send(res, 413, { error: `업로드 용량이 너무 큽니다 (${MAX_UPLOAD_MB}MB 초과). 사진을 나눠서 보내 주세요.` });
+        return;
+      }
 
-      const photos = (body.photos ?? []).map((p) => ({
-        ext: EXT[p.mediaType] ?? "jpg",
-        buffer: Buffer.from(p.base64, "base64"),
-      }));
+      let body;
+      try {
+        body = JSON.parse((await readBody(req)).toString("utf8"));
+      } catch (error) {
+        if (error.status === 413) {
+          send(res, 413, { error: error.message });
+          req.destroy();
+          return;
+        }
+        send(res, 400, { error: "보낸 내용을 읽지 못했습니다 (JSON 형식이 아닙니다)." });
+        return;
+      }
+
+      if (body.photos != null && !Array.isArray(body.photos)) {
+        send(res, 400, { error: "photos 는 배열이어야 합니다." });
+        return;
+      }
+      const photos = [];
+      for (const p of body.photos ?? []) {
+        if (typeof p?.base64 !== "string" || !p.base64) {
+          send(res, 400, { error: "사진 데이터(base64)가 비어 있습니다." });
+          return;
+        }
+        photos.push({ ext: EXT[p.mediaType] ?? "jpg", buffer: Buffer.from(p.base64, "base64") });
+      }
 
       if (!photos.length && !String(body.manualText ?? "").trim()) {
         send(res, 400, { error: "사진이나 메모 중 하나는 있어야 합니다." });
         return;
       }
 
+      // 명단은 문자열로 와도 줄 단위로 받아 줍니다.
+      const roster = Array.isArray(body.roster)
+        ? body.roster.map((r) => String(r).trim()).filter(Boolean)
+        : String(body.roster ?? "").split(/[\n,]/).map((r) => r.trim()).filter(Boolean);
+
       const meta = await store.create({
         date: /^\d{4}-\d{2}-\d{2}$/.test(body.date ?? "")
           ? body.date
           : new Date().toISOString().slice(0, 10),
         photos,
-        manualText: body.manualText,
-        roster: body.roster,
-        styleGuide: body.styleGuide,
+        manualText: String(body.manualText ?? ""),
+        roster,
+        styleGuide: String(body.styleGuide ?? ""),
       });
 
       enqueue(meta);
@@ -227,10 +282,12 @@ const handler = async (req, res) => {
 
     // 하루치 작업 목록
     if (req.method === "GET" && path === "/api/jobs") {
-      const date = url.searchParams.get("date");
-      const jobs = date
-        ? await store.list(date)
-        : await store.list(new Date().toISOString().slice(0, 10));
+      const date = url.searchParams.get("date") || new Date().toISOString().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        send(res, 400, { error: "date 는 YYYY-MM-DD 형식이어야 합니다." });
+        return;
+      }
+      const jobs = await store.list(date);
       send(res, 200, { jobs: jobs.map(summary) });
       return;
     }
@@ -265,8 +322,10 @@ const handler = async (req, res) => {
       }
       const file = join(DATA_DIR, meta.date, meta.id, meta.photos[index]);
       const buf = await readFile(file);
+      const ext = file.split(".").pop().toLowerCase();
+      const type = Object.entries(EXT).find(([, e]) => e === ext)?.[0] ?? "image/jpeg";
       res.writeHead(200, {
-        "content-type": "image/jpeg",
+        "content-type": type,
         "cache-control": "private, max-age=3600",
         ...CORS,
       });
@@ -299,9 +358,20 @@ function summary(meta) {
   };
 }
 
+// 오래된 자료 정리는 켤 때 한 번, 그 뒤로는 6시간마다. (서버가 몇 주씩 켜져 있는 경우를 위해)
+const PRUNE_EVERY = 6 * 60 * 60 * 1000;
+setInterval(() => {
+  store.prune(KEEP_DAYS).then((n) => n && console.log(`${KEEP_DAYS}일이 지난 작업 ${n}건을 정리했습니다.`)).catch(() => {});
+}, PRUNE_EVERY).unref();
+
 server.listen(PORT, "0.0.0.0", async () => {
   const removed = await store.prune(KEEP_DAYS).catch(() => 0);
+  const recovered = await recoverUnfinished().catch((e) => {
+    console.error("끝나지 않은 작업을 되살리지 못했습니다:", e.message);
+    return 0;
+  });
   console.log(`요양급여 기록 백엔드가 떴습니다.`);
+  if (recovered) console.log(`  지난번에 끝나지 않은 작업 ${recovered}건을 다시 줄 세웠습니다.`);
   console.log(`  주소   ${SCHEME}://localhost:${PORT}`);
   console.log(`  자료   ${DATA_DIR}`);
   console.log(`  claude ${process.env.CLAUDE_BIN || "claude"}`);

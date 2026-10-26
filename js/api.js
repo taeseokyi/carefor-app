@@ -1,5 +1,17 @@
 // Anthropic Messages API 호출. 브라우저에서 사용자의 키로 직접 호출합니다.
-import Anthropic from "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.3.0/+esm";
+// SDK 는 API 모드에서 처음 부를 때 내려받습니다. 처음부터 import 하면 CDN 이 안 닿을 때
+// (신호가 약한 곳, 오프라인) 앱 전체가 뜨지 않기 때문입니다.
+const SDK_URL = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.3.0/+esm";
+let sdkPromise = null;
+function loadSdk() {
+  sdkPromise ??= import(/* webpackIgnore: true */ SDK_URL)
+    .then((m) => m.default)
+    .catch((cause) => {
+      sdkPromise = null;
+      throw new ApiError("Anthropic SDK 를 내려받지 못했습니다. 인터넷 연결을 확인해 주세요.", { cause });
+    });
+  return sdkPromise;
+}
 
 import {
   READ_SYSTEM,
@@ -21,7 +33,8 @@ export class CareforApiError extends Error {
   }
 }
 
-function makeClient(apiKey) {
+async function makeClient(apiKey) {
+  const Anthropic = await loadSdk();
   return new Anthropic({
     apiKey,
     // 사용자가 자기 키를 자기 브라우저에 넣어 쓰는 구조이므로 브라우저 호출을 허용합니다.
@@ -34,15 +47,17 @@ function makeClient(apiKey) {
  * 구조화된 JSON 응답을 받는 공통 호출부.
  */
 async function callJson({ apiKey, model, system, content, schema, effort }) {
-  const client = makeClient(apiKey);
+  const client = await makeClient(apiKey);
 
   let response;
   try {
+    // Haiku 5.5 에는 서버측 fallback 이 없습니다. Opus/Sonnet 에서는 안전 분류기 거절을
+    // 다른 모델로 자동 재시도하도록 켭니다.
+    const withFallback = !/^claude-haiku/.test(model);
     response = await client.beta.messages.create({
       model,
       max_tokens: 16000,
-      betas: [FALLBACK_BETA],
-      fallbacks: "default",
+      ...(withFallback ? { betas: [FALLBACK_BETA], fallbacks: "default" } : {}),
       thinking: { type: "adaptive" },
       output_config: {
         effort,

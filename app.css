@@ -487,6 +487,9 @@ body[data-mode="local"] .only-subscription { display: none !important; }
   white-space: nowrap;
 }
 
+/* 오류 문구는 잘라 내지 않고 다 보여 줍니다. */
+.conn-dot.bad + .conn-text { white-space: normal; }
+
 .conn-edit { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
 
 .conn-edit input { font-size: .9rem; }
@@ -494,6 +497,32 @@ body[data-mode="local"] .only-subscription { display: none !important; }
 .conn-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .conn-edit .hint { margin: 0; }
+
+.conn-cert {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conn-cert h3 { margin: 0; font-size: .92rem; }
+
+.conn-cert h3 small { font-weight: 400; color: var(--text-dim); }
+
+.conn-cert .hint { margin: 0; }
+
+.cert-steps {
+  margin: 0;
+  padding-left: 1.3em;
+  font-size: .86rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cert-steps b { font-weight: 600; }
 
 /* ---------- 노트북 작업 상태 ---------- */
 .job-status {
@@ -534,6 +563,21 @@ body[data-mode="local"] .only-subscription { display: none !important; }
 }
 
 .job-row:hover { border-color: var(--brand); background: var(--brand-soft); }
+
+.job-item { display: flex; gap: 6px; align-items: stretch; }
+.job-item .job-row { flex: 1 1 auto; }
+.job-del {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: .8rem;
+  padding: 0 10px;
+  cursor: pointer;
+}
+.job-del:hover { color: var(--danger); border-color: var(--danger); }
 
 .job-row .when { color: var(--text-dim); }
 .job-row .what { flex: 1 1 auto; }

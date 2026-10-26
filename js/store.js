@@ -11,6 +11,8 @@ const DEFAULTS = {
   backendUrl: "",
   backendToken: "",
   recentBackendUrls: [],
+  // 한 번이라도 연결에 성공한 집 안 주소. 인증서 안내를 다시 띄우지 않기 위해 둡니다.
+  connectedHosts: [],
   apiKey: "",
   model: "claude-opus-5-5",
   writer: "",
