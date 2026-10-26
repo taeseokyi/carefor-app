@@ -1,5 +1,7 @@
 # 요양급여제공 기록 도우미
 
+**바로 쓰기 → https://taeseokyi.github.io/carefor-app/**
+
 업무 중 손으로 적어 둔 메모를 사진으로 올리면, 수급자 개인별로
 **신체활동 특이사항 · 인지관리 특이사항 · 상태변화 기록** 문장을 만들어 주는 웹 앱입니다.
 
@@ -60,8 +62,8 @@ http://localhost:4173 으로 열립니다. (ES 모듈을 쓰므로 `index.html`�
 
 ## GitHub Pages 발행
 
-이 폴더를 저장소에 올리고 **Settings → Pages → Source: Deploy from a branch →
-`main` / `(root)`** 로 설정하면 됩니다. 빌드 과정이 없는 정적 파일이라 그대로 배포됩니다.
+`main` 브랜치의 루트에서 배포됩니다 (**Settings → Pages → Deploy from a branch → `main` / `(root)`**).
+빌드 과정이 없는 정적 파일이라, `main`에 푸시하면 1~2분 뒤 반영됩니다.
 
 ## 구성
 
