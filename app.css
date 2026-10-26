@@ -444,6 +444,57 @@ body[data-mode="subscription"] .only-upload,
 body[data-mode="local"] .only-api,
 body[data-mode="local"] .only-subscription { display: none !important; }
 
+/* ---------- 노트북 연결 줄 ---------- */
+.conn {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.conn-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .86rem;
+  flex-wrap: wrap;
+}
+
+.conn-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.conn-dot.ok { background: var(--accent); }
+.conn-dot.bad { background: var(--danger); }
+.conn-dot.busy { background: var(--brand); animation: pulse 1.2s ease-in-out infinite; }
+
+@keyframes pulse { 50% { opacity: .3; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .conn-dot.busy { animation: none; }
+}
+
+.conn-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conn-edit { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+
+.conn-edit input { font-size: .9rem; }
+
+.conn-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.conn-edit .hint { margin: 0; }
+
 /* ---------- 노트북 작업 상태 ---------- */
 .job-status {
   display: flex;
