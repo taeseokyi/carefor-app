@@ -1,5 +1,5 @@
 import { readNotes, writeRecords } from "./api.js";
-import { buildHandoffPrompt, parseHandoffResponse, normalizePeriod } from "./prompts.js";
+import { buildHandoffPrompt, parseHandoffResponse, normalizePeriod, scrubRecord } from "./prompts.js";
 import {
   checkHealth,
   submitJob,
@@ -816,14 +816,16 @@ async function followJob(id) {
 }
 
 function loadJobIntoResults(job) {
-  state.records = (job.records ?? []).map((r) => ({
-    name: r.name,
-    notes: r.notes ?? [],
-    uncertain: Boolean(r.uncertain),
-    physical: r.physical ?? "",
-    cognitive: r.cognitive ?? "",
-    state_change: r.state_change ?? "",
-  }));
+  state.records = (job.records ?? []).map((r) =>
+    scrubRecord({
+      name: r.name,
+      notes: r.notes ?? [],
+      uncertain: Boolean(r.uncertain),
+      physical: r.physical ?? "",
+      cognitive: r.cognitive ?? "",
+      state_change: r.state_change ?? "",
+    })
+  );
   state.items = [];
   state.unreadable = [];
   render();
@@ -1187,13 +1189,13 @@ el.btnGenerate.addEventListener("click", async () => {
     // 요청한 순서를 기준으로 맞춰, 빠진 사람이 있어도 칸은 만들어 둡니다.
     state.records = people.map((person) => {
       const found = result.records.find((r) => r.name?.trim() === person.name);
-      return {
+      return scrubRecord({
         name: person.name,
         notes: person.notes,
         physical: found?.physical?.trim() ?? "",
         cognitive: found?.cognitive?.trim() ?? "",
         state_change: found?.state_change?.trim() ?? "",
-      };
+      });
     });
 
     render();

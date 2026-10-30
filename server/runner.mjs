@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { platform } from "node:os";
 
-import { buildHandoffPrompt, HANDOFF_SCHEMA, normalizePeriod } from "../js/prompts.js";
+import { buildHandoffPrompt, HANDOFF_SCHEMA, normalizePeriod, scrubRecord } from "../js/prompts.js";
 
 export class ClaudeRunner {
   /**
@@ -177,7 +177,8 @@ export class ClaudeRunner {
 }
 
 function normalizeRecord(r) {
-  return {
+  // 모델이 규칙을 어기고 문장에 이름을 넣어도 저장 전에 "어르신"으로 바꿉니다.
+  return scrubRecord({
     name: String(r?.name ?? "").trim(),
     notes: Array.isArray(r?.notes)
       ? r.notes.map((n) => String(n).trim()).filter(Boolean)
@@ -186,5 +187,5 @@ function normalizeRecord(r) {
     physical: String(r?.physical ?? "").trim(),
     cognitive: String(r?.cognitive ?? "").trim(),
     state_change: String(r?.state_change ?? "").trim(),
-  };
+  });
 }
