@@ -837,7 +837,11 @@ async function followJob(id) {
   refreshJobs().catch(() => {});
 }
 
-function loadJobIntoResults(job) {
+function loadJobIntoResults(job, { restoreMemo = false } = {}) {
+  // 목록에서 불러올 때는 그때 보낸 메모를 1단계 입력칸에 되살려, 고쳐서 다시 만들 수 있게 합니다.
+  if (restoreMemo && job.manualText?.trim()) {
+    el.manualText.value = job.manualText;
+  }
   state.records = (job.records ?? []).map((r) =>
     scrubRecord({
       name: r.name,
@@ -1040,8 +1044,12 @@ async function refreshJobs() {
         if (job.status === "done") {
           try {
             const full = await getJob(backendUrl, backendToken, job.id);
-            loadJobIntoResults(full);
-            toast(`${full.records.length}명 불러왔습니다`);
+            loadJobIntoResults(full, { restoreMemo: true });
+            toast(
+              full.manualText?.trim()
+                ? `${full.records.length}명 불러왔습니다 · 메모는 1단계 입력칸에`
+                : `${full.records.length}명 불러왔습니다`
+            );
           } catch (error) {
             showError(el.jobsError, error.message);
           }

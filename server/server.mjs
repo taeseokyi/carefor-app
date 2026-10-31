@@ -384,7 +384,10 @@ const handler = async (req, res) => {
         return;
       }
 
-      send(res, 200, { job: { ...summary(meta), records: meta.records } });
+      // 메모도 함께 주어 폰이 입력칸에 되살려 고친 뒤 다시 보낼 수 있게 합니다.
+      send(res, 200, {
+        job: { ...summary(meta), records: meta.records, manualText: meta.manualText ?? "" },
+      });
       return;
     }
 
