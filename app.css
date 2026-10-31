@@ -642,7 +642,7 @@ body[data-mode="local"] .only-subscription { display: none !important; }
 .job-badge.adopted { color: var(--text-dim); }
 .job-badge.confirmed { color: var(--accent); background: var(--surface-2); }
 
-#confirm-wrap { align-items: center; }
+.confirm-wrap { align-items: center; margin-top: 12px; }
 .confirm-note { color: var(--text-dim); flex: 1 1 200px; }
 
 .mode-hint {

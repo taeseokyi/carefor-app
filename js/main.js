@@ -95,9 +95,10 @@ const el = {
 
   stepResult: $("step-result"),
   resultSummary: $("result-summary"),
-  confirmWrap: $("confirm-wrap"),
-  btnConfirm: $("btn-confirm"),
-  confirmError: $("confirm-error"),
+  // 확정 저장 버튼은 결과 위와 아래 두 곳에 있습니다 (수급자가 많으면 아래까지 내려가기 멀어서).
+  confirmWraps: [...document.querySelectorAll(".confirm-wrap")],
+  btnConfirms: [...document.querySelectorAll(".btn-confirm")],
+  confirmErrors: [...document.querySelectorAll(".confirm-error")],
   results: $("results"),
 
   dlg: $("settings-dlg"),
@@ -865,12 +866,12 @@ function loadJobIntoResults(job) {
 
 // ---------- 확정 저장 ----------
 
-el.btnConfirm.addEventListener("click", async () => {
-  showError(el.confirmError, "");
+async function confirmCurrent() {
+  el.confirmErrors.forEach((node) => showError(node, ""));
   if (!state.jobId || !state.records.length) return;
   const { backendUrl, backendToken } = state.settings;
 
-  setBusy(el.btnConfirm, true, "저장 중…");
+  el.btnConfirms.forEach((b) => setBusy(b, true, "저장 중…"));
   try {
     const job = await confirmJob(backendUrl, backendToken, state.jobId, state.records);
     // 노트북이 이름을 걸러 돌려주므로 그 결과로 화면을 맞춥니다.
@@ -880,11 +881,12 @@ el.btnConfirm.addEventListener("click", async () => {
     toast("노트북에 확정 저장했습니다");
     refreshJobs().catch(() => {});
   } catch (error) {
-    showError(el.confirmError, error.message);
+    el.confirmErrors.forEach((node) => showError(node, error.message));
   } finally {
-    setBusy(el.btnConfirm, false);
+    el.btnConfirms.forEach((b) => setBusy(b, false));
   }
-});
+}
+el.btnConfirms.forEach((b) => b.addEventListener("click", confirmCurrent));
 
 el.btnSendLocal.addEventListener("click", async () => {
   showError(el.readError, "");
@@ -1292,7 +1294,8 @@ function renderResults() {
   if (state.settings.writer) summary.push(`작성자 ${state.settings.writer}`);
   el.resultSummary.textContent = summary.join(" · ");
   // 노트북 작업에서 온 결과일 때만 확정 저장 버튼을 보입니다.
-  el.confirmWrap.hidden = !(state.jobId && state.records.length);
+  const canConfirm = Boolean(state.jobId && state.records.length);
+  el.confirmWraps.forEach((node) => (node.hidden = !canConfirm));
 
   el.results.replaceChildren(
     ...state.records.map((record) => {
