@@ -623,7 +623,8 @@ body[data-mode="local"] .only-subscription { display: none !important; }
 .job-del:hover { color: var(--danger); border-color: var(--danger); }
 
 .job-row .when { color: var(--text-dim); white-space: nowrap; }
-.job-row .what { flex: 1 1 auto; white-space: nowrap; }
+.job-row .what { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.job-row .what .count { color: var(--text-dim); white-space: nowrap; }
 .job-row .go { color: var(--brand); font-weight: 600; white-space: nowrap; margin-left: auto; }
 
 .job-badge {

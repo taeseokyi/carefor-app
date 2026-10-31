@@ -428,6 +428,8 @@ function summary(meta) {
     status: meta.status,
     photoCount: meta.photos.length,
     recordCount: meta.records?.length ?? 0,
+    // 목록에서 누구 기록인지 바로 보이도록 이름만 따로 보냅니다.
+    names: (meta.records ?? []).map((r) => r.name).filter(Boolean),
     error: meta.error,
     createdAt: meta.createdAt,
     finishedAt: meta.finishedAt,

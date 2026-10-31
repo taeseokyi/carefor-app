@@ -830,7 +830,7 @@ async function followJob(id) {
   loadJobIntoResults(job);
   showJobStatus(
     "done",
-    `완료 · 수급자 ${job.records.length}명` +
+    `완료 · ${job.records.map((r) => r.name).filter(Boolean).join(", ")} (${job.records.length}명)` +
       (job.costUsd ? ` · 약 $${job.costUsd.toFixed(3)}` : ""),
     false
   );
@@ -978,10 +978,22 @@ async function refreshJobs() {
 
       const what = document.createElement("span");
       what.className = "what";
-      what.textContent =
-        job.status === "done"
-          ? `수급자 ${job.recordCount}명`
-          : `사진 ${job.photoCount}장`;
+      if (job.status === "done") {
+        // 이름을 보여 주고, 명수는 작게 뒤에 붙입니다.
+        const names = (job.names ?? []).join(", ");
+        if (names) {
+          what.textContent = names;
+          const count = document.createElement("span");
+          count.className = "count";
+          count.textContent = ` ${job.recordCount}명`;
+          what.append(count);
+        } else {
+          // 이름을 아직 보내지 않는 옛 서버에 붙었을 때
+          what.textContent = `수급자 ${job.recordCount}명`;
+        }
+      } else {
+        what.textContent = `사진 ${job.photoCount}장`;
+      }
 
       const badge = document.createElement("span");
       if (job.confirmed) {
