@@ -167,7 +167,7 @@ cloudflared tunnel --url http://localhost:8787
 | `DATA_DIR` | `./data` | 사진과 결과를 두는 곳 |
 | `CLAUDE_BIN` | `claude` | 실행할 명령. 첫 단어가 `wsl`이면 사진 경로를 `/mnt/c/...`로 바꿔 넘깁니다 |
 | `CLAUDE_MODEL` | (CLI 기본값) | `opus`, `sonnet` 등 |
-| `KEEP_DAYS` | `14` | 이보다 오래된 작업은 켤 때와 6시간마다 지웁니다 |
+| `KEEP_DAYS` | `56` | 이보다 오래된 작업은 켤 때와 6시간마다 지웁니다 (8주) |
 | `MAX_UPLOAD_MB` | `200` | 한 번에 받는 최대 용량. 폰이 사진을 줄여 보내므로 보통 닿지 않습니다 |
 | `TLS` | `on` | 자체 서명 인증서로 https 제공. 터널을 쓸 때는 `off` |
 | `CERT_DIR` | `server/certs` | 인증서 보관 위치. 개인 키가 들어 있으므로 커밋되지 않습니다 |
@@ -201,6 +201,10 @@ server.pid          떼어 띄운 서버의 PID
 
 사진에는 수급자 정보가 담기므로 `data/`는 저장소에 올라가지 않습니다(`.gitignore`).
 `KEEP_DAYS`가 지난 자료는 서버를 켤 때 자동으로 지워집니다.
+
+폰에서 상태변화 기간의 시작일을 넣어 보내면, 그 시작일부터 기록일 전날까지 `data/`에 남아 있는 완료된 기록을
+참고 자료로 프롬프트에 함께 넣습니다(`meta.json`의 `priorDates`에 참고한 날짜가 남습니다).
+기록일 하루만이면 아무것도 넣지 않습니다.
 
 ## API
 

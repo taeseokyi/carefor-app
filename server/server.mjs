@@ -9,7 +9,7 @@
 //   DATA_DIR        기본 ./data
 //   CLAUDE_BIN      기본 claude
 //   CLAUDE_MODEL    예: opus / sonnet (생략하면 CLI 기본값)
-//   KEEP_DAYS       오래된 작업 정리 기준, 기본 14일
+//   KEEP_DAYS       오래된 작업 정리 기준, 기본 56일(8주)
 //   MAX_UPLOAD_MB   한 번에 받는 최대 용량, 기본 200
 //   TLS             기본 on. 자체 서명 인증서로 https 를 제공합니다. off 로 두면 http
 //   CERT_DIR        인증서 보관 위치, 기본 server/certs
@@ -29,7 +29,7 @@ import { normalizePeriod } from "../js/prompts.js";
 const PORT = Number(process.env.PORT) || 8787;
 const TOKEN = process.env.CAREFOR_TOKEN || "";
 const DATA_DIR = resolve(process.env.DATA_DIR || "./data");
-const KEEP_DAYS = Number(process.env.KEEP_DAYS) || 14;
+const KEEP_DAYS = Number(process.env.KEEP_DAYS) || 56;
 const USE_TLS = !/^(0|off|false|no)$/i.test(process.env.TLS ?? "");
 const CERT_DIR = resolve(process.env.CERT_DIR || join(import.meta.dirname, "certs"));
 // 업로드 한도. 폰이 사진을 1568px JPEG 로 줄여 보내므로 12장이어도 20MB 를 넘기 어렵습니다.
@@ -74,10 +74,19 @@ async function drain() {
       startedAt: new Date().toISOString(),
     });
 
+    // 상태변화 기간을 지정했으면(시작일 < 기록일) 그 기간 안에 끝난 기록을 참고 자료로 함께 넘깁니다.
+    // 기록일 하루만이면 아무것도 넘기지 않아 메모의 관찰만으로 씁니다.
+    const period = normalizePeriod(current.date, current.periodStart);
+    const priorRecords =
+      period.days > 1 ? await store.recentRecords(period.start, current.date) : [];
+    current = await store.update(current, {
+      priorDates: priorRecords.map((p) => p.date),
+    });
+
     const { records, costUsd } = await runner.run(
       current,
       store.photoPaths(current),
-      { logPath: store.logPath(current) }
+      { logPath: store.logPath(current), priorRecords }
     );
 
     await store.update(current, {
@@ -88,6 +97,7 @@ async function drain() {
     });
     console.log(
       `[${meta.id}] 완료 · 수급자 ${records.length}명` +
+        (priorRecords.length ? ` · 이전 기록 ${priorRecords.length}일치 참고` : "") +
         (costUsd != null ? ` · 약 $${costUsd.toFixed(4)}` : "")
     );
   } catch (error) {

@@ -115,6 +115,35 @@ export class JobStore {
     }
   }
 
+  /**
+   * 상태변화 기간의 시작일(start)부터 기록일(end) 전날까지 완료된 작업의 기록을 날짜순으로 모읍니다.
+   * 기록일 당일 작업은 제외합니다. 같은 날 같은 이름이 여러 작업에 있으면 가장 나중에 만든 작업의 것을 씁니다.
+   * 반환: [{ date, people: [{ name, physical, cognitive, state_change }] }]
+   */
+  async recentRecords(start, end) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return [];
+    const out = [];
+    for (const d of await this.dates()) {
+      if (d < start || d >= end) continue;
+      const byName = new Map();
+      for (const meta of await this.list(d)) {
+        if (meta.status !== "done") continue;
+        for (const r of meta.records ?? []) {
+          if (!r?.name || byName.has(r.name)) continue;
+          if (!(r.physical || r.cognitive || r.state_change)) continue;
+          byName.set(r.name, {
+            name: r.name,
+            physical: r.physical ?? "",
+            cognitive: r.cognitive ?? "",
+            state_change: r.state_change ?? "",
+          });
+        }
+      }
+      if (byName.size) out.push({ date: d, people: [...byName.values()] });
+    }
+    return out.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
   async remove(date, id) {
     await rm(this.#dir(date, id), { recursive: true, force: true });
   }
@@ -128,7 +157,7 @@ export class JobStore {
     return join(this.#dir(meta.date, meta.id), "claude.log");
   }
 
-  /** 오래된 작업을 지웁니다. 사진이 쌓이지 않도록 기본 14일. */
+  /** 오래된 작업을 지웁니다. 사진이 쌓이지 않도록 기본 56일(8주). */
   async prune(keepDays) {
     const cutoff = Date.now() - keepDays * 24 * 60 * 60 * 1000;
     let removed = 0;

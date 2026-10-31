@@ -63,12 +63,13 @@ export class ClaudeRunner {
   /**
    * @returns {Promise<{records: array, costUsd: number|null, raw: string}>}
    */
-  async run(meta, photoPaths, { logPath } = {}) {
+  async run(meta, photoPaths, { logPath, priorRecords = [] } = {}) {
     const prompt = buildHandoffPrompt({
       period: normalizePeriod(meta.date, meta.periodStart),
       roster: meta.roster,
       manualText: meta.manualText,
       styleGuide: meta.styleGuide,
+      priorRecords,
       photoPaths: photoPaths.map((p) => this.mapPath(p)),
     });
 

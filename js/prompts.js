@@ -417,6 +417,7 @@ export function buildHandoffPrompt({
   roster,
   manualText,
   styleGuide,
+  priorRecords, // 노트북 모드에서 서버가 넣어 주는, 상태변화 기간 안에 이미 작성된 기록. [{ date, people }]
   photoPaths, // 노트북에서 claude CLI로 돌릴 때만 씁니다.
 }) {
   const parts = [];
@@ -478,6 +479,9 @@ ${periodLine}`;
     );
   }
 
+  const prior = buildPriorRecordsSection(priorRecords, period);
+  if (prior) parts.push(prior);
+
   if (styleGuide?.trim()) {
     parts.push(`${STYLE_GUIDE_HEADER}\n\n${styleGuide.trim()}`);
   }
@@ -504,6 +508,44 @@ ${periodLine}`;
 \`\`\``);
 
   return parts.join("\n\n");
+}
+
+/**
+ * 상태변화 기간(시작일 ~ 기록일 전날) 안에 이미 작성된 기록을 참고 자료로 붙입니다.
+ * 기간을 지정하지 않았거나(기록일 하루) 참고할 기록이 없으면 빈 문자열을 돌려주어 프롬프트에 아무것도 넣지 않습니다.
+ * 그러면 모델은 이번 메모의 관찰만으로 씁니다.
+ */
+export function buildPriorRecordsSection(priorRecords, period) {
+  const days = (priorRecords ?? []).filter((d) => d?.people?.length);
+  if (!days.length) return "";
+
+  const blocks = days.map((d) => {
+    const people = d.people.map((p) => {
+      const r = scrubRecord(p);
+      const lines = [`■ ${r.name}`];
+      if (r.physical) lines.push(`  신체활동: ${r.physical}`);
+      if (r.cognitive) lines.push(`  인지관리: ${r.cognitive}`);
+      if (r.state_change) lines.push(`  상태변화: ${r.state_change}`);
+      return lines.join("\n");
+    });
+    return `[${formatDateLabel(d.date)} 기록]\n${people.join("\n")}`;
+  });
+
+  return `[이전 기록 참고 — 상태변화 기간(${period.label}) 안에 이미 작성된 기록]
+아래는 이번 상태변화 기간에 들어가는 앞선 날짜에 같은 어르신들에 대해 작성해 둔 기록이다.
+이번 기록, 특히 state_change 를 쓸 때 다음과 같이 참고한다.
+- 이번 기록의 내용은 이번 메모의 관찰에서만 가져온다. 이전 기록의 문장이나 사실을 이번 기록으로 옮겨 적지 않고,
+  이전 기록에만 있고 이번 메모에 없는 활동·증상은 이번 기록에 넣지 않는다.
+- 이전 기록과 이번 메모를 견주어 변화의 흐름(호전·악화·유지·해소)이 보이면 state_change 에
+  "지난 ${formatDateLabel(days[0].date)}에는 ~하였으나 ${period.endLabel}에는 ~함"처럼 날짜를 들어 적는다.
+  이번 메모에 그 변화를 뒷받침하는 관찰이 있을 때만 그렇게 하고, 메모에 없는 변화를 짐작하지 않는다.
+- 이전에 관찰된 이상이 이번 메모에서 이어지면 "지속 관찰 중임", 메모가 나아졌다고 적고 있으면 "해소됨"처럼
+  이어지는 결과를 적는다. 이번 메모가 그 이상을 아예 언급하지 않으면 그 이상은 적지 않는다.
+- 같은 내용이라도 이전 기록의 문장을 그대로 되풀이하지 말고 표현을 달리한다.
+- 이름은 칸을 구분하는 표시일 뿐이며, 이름 뒤의 세 칸 내용은 이번 메모가 가리키는 사람과 같은 이름일 때만 참고한다.
+- 아래에 이름이 없는 어르신은 이전 기록이 없는 것이다. 그 어르신은 이번 메모의 관찰만으로 작성하고, 비교 표현을 쓰지 않는다.
+
+${blocks.join("\n\n")}`;
 }
 
 /** claude CLI 의 --json-schema 로 넘기는 응답 형식. */
