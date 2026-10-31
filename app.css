@@ -639,6 +639,11 @@ body[data-mode="local"] .only-subscription { display: none !important; }
 .job-badge.running { color: var(--brand); }
 .job-badge.done { color: var(--accent); }
 .job-badge.error { color: var(--danger); }
+.job-badge.adopted { color: var(--text-dim); }
+.job-badge.confirmed { color: var(--accent); background: var(--surface-2); }
+
+#confirm-wrap { align-items: center; }
+.confirm-note { color: var(--text-dim); flex: 1 1 200px; }
 
 .mode-hint {
   margin: 0 0 14px;

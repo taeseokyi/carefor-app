@@ -436,6 +436,7 @@ export function buildHandoffPrompt({
   const intro = photoPaths?.length
     ? `${WRITE_INTRO}
 아래 이미지 파일을 Read 도구로 읽어 주세요. 손으로 적은 메모 사진입니다.
+파일이 여럿이면 한 장씩 차례로 읽지 말고, 첫 번째 응답에서 모든 파일의 Read 를 한꺼번에 호출해 주세요.
 
 ${photoPaths.map((p) => `- ${p}`).join("\n")}
 

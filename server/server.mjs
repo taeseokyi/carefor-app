@@ -24,7 +24,7 @@ import { timingSafeEqual } from "node:crypto";
 import { JobStore } from "./store.mjs";
 import { ClaudeRunner } from "./runner.mjs";
 import { prepareTls } from "./tls.mjs";
-import { normalizePeriod } from "../js/prompts.js";
+import { normalizePeriod, scrubRecord } from "../js/prompts.js";
 
 const PORT = Number(process.env.PORT) || 8787;
 const TOKEN = process.env.CAREFOR_TOKEN || "";
@@ -138,7 +138,7 @@ const CORS = {
   // PWA가 GitHub Pages에서 열리므로 교차 출처 요청을 허용해야 합니다.
   // 토큰이 접근을 막으므로 출처는 열어 둡니다.
   "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
+  "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
   "access-control-allow-headers": "content-type,authorization",
   "access-control-max-age": "86400",
   // 공개 사이트(GitHub Pages)에서 집 안 IP 로 부르는 요청을 크롬이 따로 묻습니다.
@@ -307,6 +307,68 @@ const handler = async (req, res) => {
       return;
     }
 
+    // 폰이 이 작업의 결과를 불러와 썼다는 표시(채택)
+    const adoptMatch = path.match(/^\/api\/jobs\/([\w-]+)\/adopt$/);
+    if (req.method === "POST" && adoptMatch) {
+      const meta = await store.find(adoptMatch[1]);
+      if (!meta) {
+        send(res, 404, { error: "작업을 찾지 못했습니다." });
+        return;
+      }
+      if (meta.status !== "done") {
+        send(res, 409, { error: "끝난 작업만 채택할 수 있습니다." });
+        return;
+      }
+      const updated = await store.adopt(meta);
+      send(res, 200, { job: summary(updated) });
+      return;
+    }
+
+    // 폰에서 고친 최종 기록을 되돌려 받아 확정
+    const recordsMatch = path.match(/^\/api\/jobs\/([\w-]+)\/records$/);
+    if (req.method === "PUT" && recordsMatch) {
+      const meta = await store.find(recordsMatch[1]);
+      if (!meta) {
+        send(res, 404, { error: "작업을 찾지 못했습니다." });
+        return;
+      }
+      if (meta.status !== "done") {
+        send(res, 409, { error: "끝난 작업만 확정할 수 있습니다." });
+        return;
+      }
+      let body;
+      try {
+        body = JSON.parse((await readBody(req)).toString("utf8"));
+      } catch {
+        send(res, 400, { error: "보낸 내용을 읽지 못했습니다 (JSON 형식이 아닙니다)." });
+        return;
+      }
+      if (!Array.isArray(body.records) || !body.records.length) {
+        send(res, 400, { error: "records 는 비어 있지 않은 배열이어야 합니다." });
+        return;
+      }
+      const records = body.records
+        .map((r) =>
+          scrubRecord({
+            name: String(r?.name ?? "").trim(),
+            notes: Array.isArray(r?.notes) ? r.notes.map((n) => String(n).trim()).filter(Boolean) : [],
+            uncertain: Boolean(r?.uncertain),
+            physical: String(r?.physical ?? "").trim(),
+            cognitive: String(r?.cognitive ?? "").trim(),
+            state_change: String(r?.state_change ?? "").trim(),
+          })
+        )
+        .filter((r) => r.name);
+      if (!records.length) {
+        send(res, 400, { error: "이름이 있는 기록이 하나도 없습니다." });
+        return;
+      }
+      const updated = await store.confirm(meta, records);
+      console.log(`[${meta.id}] 폰에서 확정 저장 · 수급자 ${records.length}명`);
+      send(res, 200, { job: { ...summary(updated), records: updated.records } });
+      return;
+    }
+
     // 작업 하나 (결과 포함)
     const jobMatch = path.match(/^\/api\/jobs\/([\w-]+)$/);
     if (jobMatch) {
@@ -370,6 +432,8 @@ function summary(meta) {
     createdAt: meta.createdAt,
     finishedAt: meta.finishedAt,
     costUsd: meta.costUsd,
+    adopted: Boolean(meta.adopted),
+    confirmed: Boolean(meta.confirmed),
   };
 }
 

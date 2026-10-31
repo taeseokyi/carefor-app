@@ -222,12 +222,17 @@
     </div>
     <p class="result-summary" id="result-summary"></p>
     <div class="results" id="results"></div>
+    <div class="actions only-local" id="confirm-wrap" hidden>
+      <button type="button" class="btn primary" id="btn-confirm"><span class="btn-label">노트북에 확정 저장</span></button>
+      <small class="confirm-note" id="confirm-note">고친 내용을 노트북에 그날의 기록으로 남깁니다. 다음에 상태변화 기간을 묶어 쓸 때 이 기록을 참고합니다.</small>
+    </div>
+    <p class="error" id="confirm-error" hidden></p>
   </section>
 
 </main>
 
 <footer class="foot">
-  <p class="only-local">수급자 이름과 기록은 이 기기의 브라우저에만 저장됩니다. 사진과 메모는 집 노트북으로만 보내지며, 노트북이 14일 뒤 자동으로 지웁니다.</p>
+  <p class="only-local">수급자 이름과 기록은 이 기기의 브라우저에만 저장됩니다. 사진과 메모는 집 노트북으로만 보내지며, 노트북이 8주 뒤 자동으로 지웁니다.</p>
   <p class="only-subscription">수급자 이름과 기록은 이 기기의 브라우저에만 저장됩니다. 이 앱은 사진을 어디로도 보내지 않습니다. Claude 앱에 직접 올리는 것만 전송됩니다.</p>
   <p class="only-api">수급자 이름과 기록은 이 기기의 브라우저에만 저장됩니다. 판독에 쓰는 사진만 Anthropic API로 직접 전송됩니다.</p>
 </footer>

@@ -6,6 +6,8 @@ import {
   listJobs,
   getJob,
   deleteJob,
+  adoptJob,
+  confirmJob,
   waitForJob,
   normalizeBackendUrl,
   isDirectHost,
@@ -28,6 +30,8 @@ const state = {
   items: [], // { id, name, note, uncertain }
   records: [], // { name, physical, cognitive, state_change }
   unreadable: [],
+  // 결과가 노트북 작업에서 온 것이면 그 작업 id. 확정 저장 버튼이 이 값으로 보냅니다.
+  jobId: null,
 };
 
 // ---------- DOM ----------
@@ -91,6 +95,9 @@ const el = {
 
   stepResult: $("step-result"),
   resultSummary: $("result-summary"),
+  confirmWrap: $("confirm-wrap"),
+  btnConfirm: $("btn-confirm"),
+  confirmError: $("confirm-error"),
   results: $("results"),
 
   dlg: $("settings-dlg"),
@@ -379,13 +386,27 @@ async function addFiles(fileList) {
     toast(`${room}장만 추가했습니다 (최대 ${MAX_IMAGES}장)`);
   }
 
-  for (const file of accepted) {
-    try {
-      state.images.push(await fileToImage(file));
-    } catch {
-      toast(`"${file.name}"을(를) 읽지 못했습니다`);
+  // 한 장씩 차례로 줄이면 12장에 20초 넘게 걸리고 그동안 화면이 비어 보입니다.
+  // 몇 장씩 동시에 줄이되(메모리 때문에 전부 한꺼번에는 하지 않음), 끝나는 대로 썸네일을 보여 줍니다.
+  const slots = new Array(accepted.length).fill(null);
+  const CONCURRENCY = 3;
+  let next = 0;
+  const worker = async () => {
+    while (next < accepted.length) {
+      const index = next++;
+      const file = accepted[index];
+      try {
+        slots[index] = await fileToImage(file);
+        // 고른 순서를 지키려고, 앞선 사진이 아직 안 끝났으면 그 뒤 것은 다음 렌더에 함께 넣습니다.
+        state.images = state.images.filter((img) => !slots.includes(img));
+        state.images.push(...slots.filter(Boolean));
+        renderThumbs();
+      } catch {
+        toast(`"${file.name}"을(를) 읽지 못했습니다`);
+      }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, accepted.length) }, worker));
   renderThumbs();
 }
 
@@ -828,10 +849,42 @@ function loadJobIntoResults(job) {
   );
   state.items = [];
   state.unreadable = [];
+  state.jobId = job.id ?? null;
   render();
   persistDraft();
   el.stepResult.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  // 불러와 썼다는 뜻이므로 그날 기록으로 채택해 둡니다. 실패해도 화면 흐름은 막지 않습니다.
+  if (job.id && !job.adopted) {
+    const { backendUrl, backendToken } = state.settings;
+    adoptJob(backendUrl, backendToken, job.id)
+      .then(() => refreshJobs().catch(() => {}))
+      .catch(() => {});
+  }
 }
+
+// ---------- 확정 저장 ----------
+
+el.btnConfirm.addEventListener("click", async () => {
+  showError(el.confirmError, "");
+  if (!state.jobId || !state.records.length) return;
+  const { backendUrl, backendToken } = state.settings;
+
+  setBusy(el.btnConfirm, true, "저장 중…");
+  try {
+    const job = await confirmJob(backendUrl, backendToken, state.jobId, state.records);
+    // 노트북이 이름을 걸러 돌려주므로 그 결과로 화면을 맞춥니다.
+    state.records = (job.records ?? []).map((r) => scrubRecord({ ...r, notes: r.notes ?? [] }));
+    renderResults();
+    persistDraft();
+    toast("노트북에 확정 저장했습니다");
+    refreshJobs().catch(() => {});
+  } catch (error) {
+    showError(el.confirmError, error.message);
+  } finally {
+    setBusy(el.btnConfirm, false);
+  }
+});
 
 el.btnSendLocal.addEventListener("click", async () => {
   showError(el.readError, "");
@@ -929,8 +982,18 @@ async function refreshJobs() {
           : `사진 ${job.photoCount}장`;
 
       const badge = document.createElement("span");
-      badge.className = `job-badge ${job.status}`;
-      badge.textContent = JOB_LABEL[job.status] ?? job.status;
+      if (job.confirmed) {
+        badge.className = "job-badge confirmed";
+        badge.textContent = "확정";
+        badge.title = "폰에서 고친 내용을 노트북에 저장한 그날의 기록";
+      } else if (job.adopted) {
+        badge.className = "job-badge adopted";
+        badge.textContent = "채택";
+        badge.title = "폰에서 불러와 쓴 작업. 상태변화 기간을 묶을 때 이 결과를 참고합니다";
+      } else {
+        badge.className = `job-badge ${job.status}`;
+        badge.textContent = JOB_LABEL[job.status] ?? job.status;
+      }
 
       const go = document.createElement("span");
       go.className = "go";
@@ -1031,6 +1094,7 @@ el.btnLoadPaste.addEventListener("click", () => {
     return;
   }
 
+  state.jobId = null;
   state.records = records;
   state.items = [];
   state.unreadable = [];
@@ -1187,6 +1251,7 @@ el.btnGenerate.addEventListener("click", async () => {
     });
 
     // 요청한 순서를 기준으로 맞춰, 빠진 사람이 있어도 칸은 만들어 둡니다.
+    state.jobId = null;
     state.records = people.map((person) => {
       const found = result.records.find((r) => r.name?.trim() === person.name);
       return scrubRecord({
@@ -1226,6 +1291,8 @@ function renderResults() {
   ];
   if (state.settings.writer) summary.push(`작성자 ${state.settings.writer}`);
   el.resultSummary.textContent = summary.join(" · ");
+  // 노트북 작업에서 온 결과일 때만 확정 저장 버튼을 보입니다.
+  el.confirmWrap.hidden = !(state.jobId && state.records.length);
 
   el.results.replaceChildren(
     ...state.records.map((record) => {
@@ -1365,13 +1432,27 @@ async function copyText(text) {
 
 // ---------- 임시 저장 ----------
 
+// 글자를 칠 때마다 전체 상태를 다시 쓰지 않도록 잠깐 모았다가 저장합니다.
+let draftTimer = null;
 function persistDraft() {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(persistDraftNow, 400);
+}
+
+// 화면을 닫거나 다른 앱으로 넘어갈 때 미뤄 둔 저장을 바로 반영합니다.
+window.addEventListener("pagehide", () => {
+  if (draftTimer) persistDraftNow();
+});
+
+function persistDraftNow() {
+  draftTimer = null;
   saveDraft({
     date: el.date.value,
     periodStart: el.periodStart.value,
     items: state.items,
     records: state.records,
     unreadable: state.unreadable,
+    jobId: state.jobId,
     savedAt: Date.now(),
   });
 }
@@ -1389,6 +1470,7 @@ function restoreDraft() {
   state.items = draft.items ?? [];
   state.records = draft.records ?? [];
   state.unreadable = draft.unreadable ?? [];
+  state.jobId = draft.jobId ?? null;
   if (draft.periodStart) {
     el.periodStart.value = draft.periodStart;
     syncPeriod();

@@ -194,6 +194,21 @@ export async function deleteJob(baseUrl, token, id) {
   await request(baseUrl, token, `/api/jobs/${id}`, { method: "DELETE" });
 }
 
+/** 이 작업의 결과를 폰이 불러와 썼다고 노트북에 알립니다. 그날 기록으로 채택됩니다. */
+export async function adoptJob(baseUrl, token, id) {
+  const data = await request(baseUrl, token, `/api/jobs/${id}/adopt`, { method: "POST" });
+  return data.job;
+}
+
+/** 폰에서 고친 최종 기록을 노트북에 되돌려 보내 확정합니다. */
+export async function confirmJob(baseUrl, token, id, records) {
+  const data = await request(baseUrl, token, `/api/jobs/${id}/records`, {
+    method: "PUT",
+    body: JSON.stringify({ records }),
+  });
+  return data.job;
+}
+
 /**
  * 작업이 끝날 때까지 지켜봅니다. 처리 중에는 몇 초 간격으로 다시 물어봅니다.
  */

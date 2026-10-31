@@ -117,7 +117,8 @@ export class JobStore {
 
   /**
    * 상태변화 기간의 시작일(start)부터 기록일(end) 전날까지 완료된 작업의 기록을 날짜순으로 모읍니다.
-   * 기록일 당일 작업은 제외합니다. 같은 날 같은 이름이 여러 작업에 있으면 가장 나중에 만든 작업의 것을 씁니다.
+   * 기록일 당일 작업은 제외합니다. 같은 날 같은 이름이 여러 작업에 있으면
+   * 폰에서 확정 저장한 작업 → 폰이 불러와 쓴(채택) 작업 → 가장 나중에 만든 작업 순으로 고릅니다.
    * 반환: [{ date, people: [{ name, physical, cognitive, state_change }] }]
    */
   async recentRecords(start, end) {
@@ -126,12 +127,17 @@ export class JobStore {
     for (const d of await this.dates()) {
       if (d < start || d >= end) continue;
       const byName = new Map();
+      // list() 는 최신순이므로, 같은 우선순위 안에서는 먼저 만난 것(가장 나중 작업)이 남습니다.
       for (const meta of await this.list(d)) {
         if (meta.status !== "done") continue;
+        const rank = meta.confirmed ? 2 : meta.adopted ? 1 : 0;
         for (const r of meta.records ?? []) {
-          if (!r?.name || byName.has(r.name)) continue;
+          if (!r?.name) continue;
           if (!(r.physical || r.cognitive || r.state_change)) continue;
+          const have = byName.get(r.name);
+          if (have && have.rank >= rank) continue;
           byName.set(r.name, {
+            rank,
             name: r.name,
             physical: r.physical ?? "",
             cognitive: r.cognitive ?? "",
@@ -139,9 +145,36 @@ export class JobStore {
           });
         }
       }
-      if (byName.size) out.push({ date: d, people: [...byName.values()] });
+      if (byName.size) {
+        out.push({ date: d, people: [...byName.values()].map(({ rank, ...p }) => p) });
+      }
     }
     return out.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  /**
+   * 폰이 이 작업의 결과를 불러와 썼다고 표시합니다(채택).
+   * 같은 날 같은 이름이 든 다른 작업의 채택은 풉니다. 확정된 작업은 건드리지 않습니다.
+   */
+  async adopt(meta) {
+    const names = new Set((meta.records ?? []).map((r) => r.name));
+    for (const other of await this.list(meta.date)) {
+      if (other.id === meta.id || !other.adopted || other.confirmed) continue;
+      if ((other.records ?? []).some((r) => names.has(r.name))) {
+        await this.update(other, { adopted: false });
+      }
+    }
+    return this.update(meta, { adopted: true, adoptedAt: new Date().toISOString() });
+  }
+
+  /** 폰에서 고친 최종 기록으로 결과를 덮어쓰고 확정 표시를 합니다. 채택도 함께 됩니다. */
+  async confirm(meta, records) {
+    const adopted = await this.adopt({ ...meta, records });
+    return this.update(adopted, {
+      records,
+      confirmed: true,
+      confirmedAt: new Date().toISOString(),
+    });
   }
 
   async remove(date, id) {

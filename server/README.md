@@ -206,6 +206,9 @@ server.pid          떼어 띄운 서버의 PID
 참고 자료로 프롬프트에 함께 넣습니다(`meta.json`의 `priorDates`에 참고한 날짜가 남습니다).
 기록일 하루만이면 아무것도 넣지 않습니다.
 
+같은 날 같은 이름이 여러 작업에 있으면 **확정**(폰에서 고쳐 되돌려 보낸 것) → **채택**(폰이 불러와 쓴 것) →
+가장 나중 작업 순으로 하나만 씁니다.
+
 ## API
 
 토큰은 `Authorization: Bearer <토큰>` 헤더로 보냅니다.
@@ -218,6 +221,8 @@ server.pid          떼어 띄운 서버의 PID
 | GET | `/api/jobs?date=YYYY-MM-DD` | 그날 작업 목록 |
 | GET | `/api/jobs/:id` | 작업 하나와 결과 |
 | DELETE | `/api/jobs/:id` | 작업 삭제 |
+| POST | `/api/jobs/:id/adopt` | 폰이 이 작업의 결과를 불러와 썼다는 표시(채택). 같은 날 같은 이름이 든 다른 작업의 채택은 풀립니다 |
+| PUT | `/api/jobs/:id/records` | 폰에서 고친 최종 기록(`{records:[…]}`)으로 결과를 덮어쓰고 확정 표시 |
 | GET | `/api/jobs/:id/photos/:n` | 올린 사진 다시 보기 |
 
 작업은 한 번에 하나씩 처리됩니다. 여러 건을 보내면 줄을 서서 차례로 돌아갑니다.
