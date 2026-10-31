@@ -109,7 +109,7 @@
     <details class="manual" id="manual-wrap">
       <summary>사진 대신 직접 입력하기 / 사진에 덧붙이기</summary>
       <p class="hint">한 줄에 하나씩 <code>이름 - 내용</code> 형식으로 적어 주세요. 같은 이름이 여러 줄 나와도 됩니다.</p>
-      <textarea id="manual-text" rows="6" placeholder="홍길동 - 점심을 모두 다 드심&#10;박순자 - 노래 프로그램, 삶의 만족도 향상&#10;김영수 - 평소보다 말을 많이 하심"></textarea>
+      <textarea id="manual-text" rows="6" placeholder="홍길동 - 점심을 모두 다 드심&#10;박순자 - 노래 프로그램, 삶의 만족도 향상&#10;김영수 - 평소보다 말을 많이 하심&#10;홍길동 - 10/21 점심 반만 드심 (다른 날 메모는 앞에 월/일)"></textarea>
     </details>
 
     <div class="period-field">
@@ -118,9 +118,13 @@
       <span class="period-until">~ 기록일</span>
       <span class="period-note" id="period-note"></span>
       <button type="button" class="btn ghost small" id="period-clear" hidden>하루로 되돌리기</button>
-      <small>비워 두면 기록일 하루. 길어야 일주일까지 묶을 수 있습니다.
-        여러 날 메모를 함께 올릴 때는 메모에 날짜를 적어 두세요. 기록일이 아닌 날 메모는 상태변화 칸에만 들어갑니다.
-        노트북으로 보낼 때는 이 기간 안에 노트북이 이미 만들어 둔 앞선 날짜의 기록도 함께 참고합니다.</small>
+      <small>비워 두면 기록일 하루 기록입니다. 시작일을 넣으면 <b>상태변화 칸만</b> 그 기간(최대 일주일)을 요약하고,
+        신체활동·인지관리 칸은 언제나 기록일 하루입니다.
+        노트북으로 보낼 때는 그 기간에 노트북이 먼저 만들어 둔 날짜별 기록을 참고해 변화의 흐름을 적습니다.
+        앞선 기록이 없거나 Claude 앱·API 키 방식이면 이번 메모만으로 씁니다.
+        여러 날 메모를 한 번에 올릴 때는 메모 앞에 <code>월/일</code> 형태로 날짜를 적어 두세요.
+        (예: <code>10/21 점심 반만 드심</code>, 직접 입력칸에서는 <code>홍길동 - 10/21 점심 반만 드심</code>)
+        날짜 없는 메모는 기록일 것으로 봅니다.</small>
     </div>
 
     <div class="actions">
