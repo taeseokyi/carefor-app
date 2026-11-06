@@ -8,6 +8,7 @@ import {
   deleteJob,
   adoptJob,
   confirmJob,
+  reviseJob,
   waitForJob,
   normalizeBackendUrl,
   isDirectHost,
@@ -30,8 +31,10 @@ const state = {
   items: [], // { id, name, note, uncertain }
   records: [], // { name, physical, cognitive, state_change }
   unreadable: [],
-  // 결과가 노트북 작업에서 온 것이면 그 작업 id. 확정 저장 버튼이 이 값으로 보냅니다.
+  // 결과가 노트북 작업에서 온 것이면 그 작업 id. 확정 저장·수정 요청 버튼이 이 값으로 보냅니다.
   jobId: null,
+  // 그 작업이 수정 요청이었으면 보낸 지시와 노트북의 답. 결과 요약 아래에 보여 줍니다.
+  jobInfo: null, // { instruction, reply } | null
 };
 
 // ---------- DOM ----------
@@ -96,6 +99,14 @@ const el = {
   stepResult: $("step-result"),
   resultSummary: $("result-summary"),
   // 확정 저장 버튼은 결과 위와 아래 두 곳에 있습니다 (수급자가 많으면 아래까지 내려가기 멀어서).
+  reviseInfo: $("revise-info"),
+  reviseWrap: $("revise-wrap"),
+  reviseInput: $("revise-input"),
+  btnRevise: $("btn-revise"),
+  reviseError: $("revise-error"),
+  reviseStatus: $("revise-status"),
+  reviseSpinner: $("revise-spinner"),
+  reviseStatusText: $("revise-status-text"),
   confirmWraps: [...document.querySelectorAll(".confirm-wrap")],
   btnConfirms: [...document.querySelectorAll(".btn-confirm")],
   confirmErrors: [...document.querySelectorAll(".confirm-error")],
@@ -311,6 +322,8 @@ el.btnForget.addEventListener("click", () => {
   state.records = [];
   state.items = [];
   state.unreadable = [];
+  state.jobId = null;
+  state.jobInfo = null;
   state.images.forEach((img) => URL.revokeObjectURL(img.url));
   state.images = [];
   applySettingsToForm();
@@ -797,11 +810,18 @@ el.btnTestBackend.addEventListener("click", async () => {
   }
 });
 
-function showJobStatus(kind, text, busy) {
-  el.jobStatus.hidden = false;
-  el.jobStatus.className = `job-status only-local ${kind}`;
-  el.jobText.textContent = text;
-  el.jobSpinner.hidden = !busy;
+// 진행 상태를 보여 주는 자리. "job"은 1단계 아래(새 작업), "revise"는 3단계의 수정 요청 상자 안.
+const STATUS_BOX = {
+  job: () => ({ box: el.jobStatus, text: el.jobText, spinner: el.jobSpinner, base: "job-status only-local" }),
+  revise: () => ({ box: el.reviseStatus, text: el.reviseStatusText, spinner: el.reviseSpinner, base: "job-status" }),
+};
+
+function showJobStatus(kind, text, busy, where = "job") {
+  const { box, text: node, spinner, base } = STATUS_BOX[where]();
+  box.hidden = false;
+  box.className = `${base} ${kind}`;
+  node.textContent = text;
+  spinner.hidden = !busy;
 }
 
 const JOB_LABEL = {
@@ -811,28 +831,31 @@ const JOB_LABEL = {
   error: "실패",
 };
 
-async function followJob(id) {
+async function followJob(id, where = "job") {
   const { backendUrl, backendToken } = state.settings;
 
   const job = await waitForJob(backendUrl, backendToken, id, {
     onUpdate: (j) => {
       if (j.status === "queued" || j.status === "running") {
-        showJobStatus("running", `${JOB_LABEL[j.status]}…`, true);
+        showJobStatus("running", `${JOB_LABEL[j.status]}…`, true, where);
       }
     },
   });
 
   if (job.status === "error") {
-    showJobStatus("error", `노트북에서 실패했습니다 — ${job.error}`, false);
+    showJobStatus("error", `노트북에서 실패했습니다 — ${job.error}`, false, where);
     return;
   }
 
   loadJobIntoResults(job);
+  const names = job.records.map((r) => r.name).filter(Boolean).join(", ");
   showJobStatus(
     "done",
-    `완료 · ${job.records.map((r) => r.name).filter(Boolean).join(", ")} (${job.records.length}명)` +
-      (job.costUsd ? ` · 약 $${job.costUsd.toFixed(3)}` : ""),
-    false
+    `${job.kind === "revise" ? "수정 완료" : "완료"} · ${names} (${job.records.length}명)` +
+      (job.costUsd ? ` · 약 $${job.costUsd.toFixed(3)}` : "") +
+      (job.kind === "revise" ? " · 고친 결과가 위에 올라왔습니다" : ""),
+    false,
+    where
   );
   refreshJobs().catch(() => {});
 }
@@ -855,6 +878,10 @@ function loadJobIntoResults(job, { restoreMemo = false } = {}) {
   state.items = [];
   state.unreadable = [];
   state.jobId = job.id ?? null;
+  state.jobInfo =
+    job.kind === "revise"
+      ? { instruction: job.instruction || job.instructionHead || "", reply: job.reply ?? null }
+      : null;
   render();
   persistDraft();
   el.stepResult.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -891,6 +918,46 @@ async function confirmCurrent() {
   }
 }
 el.btnConfirms.forEach((b) => b.addEventListener("click", confirmCurrent));
+
+// ---------- 수정 요청 ----------
+
+async function requestRevision() {
+  showError(el.reviseError, "");
+  if (!state.jobId || !state.records.length) return;
+
+  const instruction = el.reviseInput.value.trim();
+  if (!instruction) {
+    showError(el.reviseError, "고치고 싶은 점을 적어 주세요. 예) 홍길동 상태변화 문장을 더 짧게");
+    el.reviseInput.focus();
+    return;
+  }
+
+  const { backendUrl, backendToken } = state.settings;
+  setBusy(el.btnRevise, true, "보내는 중…");
+  try {
+    const job = await reviseJob(backendUrl, backendToken, state.jobId, {
+      instruction,
+      // 화면에서 손으로 고친 내용까지 그대로 보내, 그 위에서 고치게 합니다.
+      records: state.records,
+      roster: state.settings.roster,
+      styleGuide: state.settings.styleGuide,
+    });
+
+    toast("노트북에 수정을 요청했습니다");
+    showJobStatus("running", "차례 기다리는 중…", true, "revise");
+    el.reviseInput.value = "";
+    refreshJobs().catch(() => {});
+
+    setBusy(el.btnRevise, true, "노트북이 고치는 중…");
+    await followJob(job.id, "revise");
+  } catch (error) {
+    showError(el.reviseError, error.message);
+    showJobStatus("error", error.message, false, "revise");
+  } finally {
+    setBusy(el.btnRevise, false);
+  }
+}
+el.btnRevise.addEventListener("click", requestRevision);
 
 el.btnSendLocal.addEventListener("click", async () => {
   showError(el.readError, "");
@@ -982,21 +1049,30 @@ async function refreshJobs() {
 
       const what = document.createElement("span");
       what.className = "what";
+      if (job.kind === "revise") {
+        const kind = document.createElement("span");
+        kind.className = "job-kind";
+        kind.textContent = "수정";
+        kind.title = job.instructionHead ? `수정 지시: ${job.instructionHead}` : "수정 요청으로 만든 작업";
+        what.append(kind);
+      }
       if (job.status === "done") {
         // 이름을 보여 주고, 명수는 작게 뒤에 붙입니다.
         const names = (job.names ?? []).join(", ");
         if (names) {
-          what.textContent = names;
+          what.append(names);
           const count = document.createElement("span");
           count.className = "count";
           count.textContent = ` ${job.recordCount}명`;
           what.append(count);
         } else {
           // 이름을 아직 보내지 않는 옛 서버에 붙었을 때
-          what.textContent = `수급자 ${job.recordCount}명`;
+          what.append(`수급자 ${job.recordCount}명`);
         }
+      } else if (job.kind === "revise") {
+        what.append(job.instructionHead || "수정 요청");
       } else {
-        what.textContent = `사진 ${job.photoCount}장`;
+        what.append(`사진 ${job.photoCount}장`);
       }
 
       const badge = document.createElement("span");
@@ -1117,6 +1193,7 @@ el.btnLoadPaste.addEventListener("click", () => {
   }
 
   state.jobId = null;
+  state.jobInfo = null;
   state.records = records;
   state.items = [];
   state.unreadable = [];
@@ -1274,6 +1351,8 @@ el.btnGenerate.addEventListener("click", async () => {
 
     // 요청한 순서를 기준으로 맞춰, 빠진 사람이 있어도 칸은 만들어 둡니다.
     state.jobId = null;
+    state.jobInfo = null;
+  state.jobInfo = null;
     state.records = people.map((person) => {
       const found = result.records.find((r) => r.name?.trim() === person.name);
       return scrubRecord({
@@ -1313,9 +1392,11 @@ function renderResults() {
   ];
   if (state.settings.writer) summary.push(`작성자 ${state.settings.writer}`);
   el.resultSummary.textContent = summary.join(" · ");
-  // 노트북 작업에서 온 결과일 때만 확정 저장 버튼을 보입니다.
+  // 노트북 작업에서 온 결과일 때만 확정 저장·수정 요청을 보입니다.
   const canConfirm = Boolean(state.jobId && state.records.length);
   el.confirmWraps.forEach((node) => (node.hidden = !canConfirm));
+  el.reviseWrap.hidden = !canConfirm;
+  renderReviseInfo();
 
   el.results.replaceChildren(
     ...state.records.map((record) => {
@@ -1368,6 +1449,27 @@ function renderResults() {
 
       person.append(head, body);
       return person;
+    })
+  );
+}
+
+/** 수정 요청으로 만든 결과면, 보낸 지시와 노트북의 답을 결과 요약 아래에 보여 줍니다. */
+function renderReviseInfo() {
+  const info = state.jobInfo;
+  el.reviseInfo.hidden = !(info && state.jobId && state.records.length);
+  if (el.reviseInfo.hidden) return;
+  const lines = [];
+  if (info.instruction) lines.push(["수정 지시", info.instruction]);
+  if (info.reply) lines.push(["노트북 답", info.reply]);
+  el.reviseInfo.replaceChildren(
+    ...lines.map(([label, text]) => {
+      const row = document.createElement("div");
+      const b = document.createElement("b");
+      b.textContent = `${label} · `;
+      const span = document.createElement("span");
+      span.textContent = text;
+      row.append(b, span);
+      return row;
     })
   );
 }
@@ -1476,6 +1578,7 @@ function persistDraftNow() {
     records: state.records,
     unreadable: state.unreadable,
     jobId: state.jobId,
+    jobInfo: state.jobInfo,
     savedAt: Date.now(),
   });
 }
@@ -1494,6 +1597,7 @@ function restoreDraft() {
   state.records = draft.records ?? [];
   state.unreadable = draft.unreadable ?? [];
   state.jobId = draft.jobId ?? null;
+  state.jobInfo = draft.jobInfo ?? null;
   if (draft.periodStart) {
     el.periodStart.value = draft.periodStart;
     syncPeriod();

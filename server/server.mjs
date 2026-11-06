@@ -83,7 +83,7 @@ async function drain() {
       priorDates: priorRecords.map((p) => p.date),
     });
 
-    const { records, costUsd } = await runner.run(
+    const { records, reply, costUsd } = await runner.run(
       current,
       store.photoPaths(current),
       { logPath: store.logPath(current), priorRecords }
@@ -92,11 +92,12 @@ async function drain() {
     await store.update(current, {
       status: "done",
       records,
+      reply: reply ?? null,
       costUsd,
       finishedAt: new Date().toISOString(),
     });
     console.log(
-      `[${meta.id}] 완료 · 수급자 ${records.length}명` +
+      `[${meta.id}] ${current.kind === "revise" ? "수정 완료" : "완료"} · 수급자 ${records.length}명` +
         (priorRecords.length ? ` · 이전 기록 ${priorRecords.length}일치 참고` : "") +
         (costUsd != null ? ` · 약 $${costUsd.toFixed(4)}` : "")
     );
@@ -347,18 +348,7 @@ const handler = async (req, res) => {
         send(res, 400, { error: "records 는 비어 있지 않은 배열이어야 합니다." });
         return;
       }
-      const records = body.records
-        .map((r) =>
-          scrubRecord({
-            name: String(r?.name ?? "").trim(),
-            notes: Array.isArray(r?.notes) ? r.notes.map((n) => String(n).trim()).filter(Boolean) : [],
-            uncertain: Boolean(r?.uncertain),
-            physical: String(r?.physical ?? "").trim(),
-            cognitive: String(r?.cognitive ?? "").trim(),
-            state_change: String(r?.state_change ?? "").trim(),
-          })
-        )
-        .filter((r) => r.name);
+      const records = normalizeRecords(body.records);
       if (!records.length) {
         send(res, 400, { error: "이름이 있는 기록이 하나도 없습니다." });
         return;
@@ -366,6 +356,54 @@ const handler = async (req, res) => {
       const updated = await store.confirm(meta, records);
       console.log(`[${meta.id}] 폰에서 확정 저장 · 수급자 ${records.length}명`);
       send(res, 200, { job: { ...summary(updated), records: updated.records } });
+      return;
+    }
+
+    // 폰에 떠 있는 기록을 지시에 맞춰 고치는 새 작업(수정 요청)
+    const reviseMatch = path.match(/^\/api\/jobs\/([\w-]+)\/revise$/);
+    if (req.method === "POST" && reviseMatch) {
+      const parent = await store.find(reviseMatch[1]);
+      if (!parent) {
+        send(res, 404, { error: "작업을 찾지 못했습니다." });
+        return;
+      }
+      if (parent.status !== "done") {
+        send(res, 409, { error: "끝난 작업만 수정을 요청할 수 있습니다." });
+        return;
+      }
+      let body;
+      try {
+        body = JSON.parse((await readBody(req)).toString("utf8"));
+      } catch {
+        send(res, 400, { error: "보낸 내용을 읽지 못했습니다 (JSON 형식이 아닙니다)." });
+        return;
+      }
+      const instruction = String(body.instruction ?? "").trim();
+      if (!instruction) {
+        send(res, 400, { error: "수정 지시가 비어 있습니다." });
+        return;
+      }
+      if (instruction.length > 4000) {
+        send(res, 400, { error: "수정 지시가 너무 깁니다 (4000자 이내)." });
+        return;
+      }
+      // 현재 기록을 보내지 않았으면 원본 작업의 결과를 고칩니다.
+      const baseRecords = Array.isArray(body.records) && body.records.length
+        ? normalizeRecords(body.records)
+        : parent.records ?? [];
+      if (!baseRecords.length) {
+        send(res, 400, { error: "고칠 기록이 없습니다." });
+        return;
+      }
+      const roster = Array.isArray(body.roster)
+        ? body.roster.map((r) => String(r).trim()).filter(Boolean)
+        : undefined;
+      const styleGuide = typeof body.styleGuide === "string" ? body.styleGuide : undefined;
+
+      const meta = await store.createRevision(parent, { instruction, baseRecords, roster, styleGuide });
+      enqueue(meta);
+      console.log(`[${meta.id}] 수정 요청 (원본 ${parent.id}) · ${instruction.slice(0, 60).replace(/\s+/g, " ")}`);
+      send(res, 202, { job: summary(meta), queued: queue.length });
       return;
     }
 
@@ -386,7 +424,13 @@ const handler = async (req, res) => {
 
       // 메모도 함께 주어 폰이 입력칸에 되살려 고친 뒤 다시 보낼 수 있게 합니다.
       send(res, 200, {
-        job: { ...summary(meta), records: meta.records, manualText: meta.manualText ?? "" },
+        job: {
+          ...summary(meta),
+          records: meta.records,
+          manualText: meta.manualText ?? "",
+          // 수정 작업이면 지시 전문도 함께 줍니다.
+          instruction: meta.instruction ?? "",
+        },
       });
       return;
     }
@@ -424,11 +468,33 @@ const server = tls
   ? createHttpsServer({ key: tls.key, cert: tls.cert }, handler)
   : createHttpServer(handler);
 
+/** 폰이 보낸 기록을 저장할 형태로 다듬습니다. 이름 없는 줄은 버리고, 문장에 섞인 이름은 "어르신"으로 바꿉니다. */
+function normalizeRecords(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((r) =>
+      scrubRecord({
+        name: String(r?.name ?? "").trim(),
+        notes: Array.isArray(r?.notes) ? r.notes.map((n) => String(n).trim()).filter(Boolean) : [],
+        uncertain: Boolean(r?.uncertain),
+        physical: String(r?.physical ?? "").trim(),
+        cognitive: String(r?.cognitive ?? "").trim(),
+        state_change: String(r?.state_change ?? "").trim(),
+      })
+    )
+    .filter((r) => r.name);
+}
+
 function summary(meta) {
   return {
     id: meta.id,
     date: meta.date,
     status: meta.status,
+    // "new"(사진·메모로 새로 만든 작업) 또는 "revise"(수정 요청)
+    kind: meta.kind ?? "new",
+    parentId: meta.parentId ?? null,
+    // 목록에서 무엇을 고친 작업인지 보이도록 지시의 머리만 보냅니다.
+    instructionHead: meta.instruction ? String(meta.instruction).replace(/\s+/g, " ").slice(0, 80) : "",
+    reply: meta.reply ?? null,
     photoCount: meta.photos.length,
     recordCount: meta.records?.length ?? 0,
     // 목록에서 누구 기록인지 바로 보이도록 이름만 따로 보냅니다.

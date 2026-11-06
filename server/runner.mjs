@@ -7,7 +7,14 @@ import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { platform } from "node:os";
 
-import { buildHandoffPrompt, HANDOFF_SCHEMA, normalizePeriod, scrubRecord } from "../js/prompts.js";
+import {
+  buildHandoffPrompt,
+  buildRevisePrompt,
+  HANDOFF_SCHEMA,
+  REVISE_SCHEMA,
+  normalizePeriod,
+  scrubRecord,
+} from "../js/prompts.js";
 
 export class ClaudeRunner {
   /**
@@ -36,7 +43,7 @@ export class ClaudeRunner {
     return `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, "/")}`;
   }
 
-  buildArgs(prompt) {
+  buildArgs(prompt, schema = HANDOFF_SCHEMA) {
     const args = [
       ...this.prefix,
       "-p",
@@ -44,7 +51,7 @@ export class ClaudeRunner {
       "--output-format",
       "json",
       "--json-schema",
-      JSON.stringify(HANDOFF_SCHEMA),
+      JSON.stringify(schema),
       // 사진을 읽어야 하므로 Read 만 허용합니다.
       "--tools",
       "Read",
@@ -61,24 +68,30 @@ export class ClaudeRunner {
   }
 
   /**
-   * @returns {Promise<{records: array, costUsd: number|null, raw: string}>}
+   * 새 작업은 사진·메모로 기록을 만들고, 수정 작업(meta.kind === "revise")은 현재 기록을 지시에 맞춰 고칩니다.
+   * @returns {Promise<{records: array, reply: string|null, costUsd: number|null, raw: string}>}
    */
   async run(meta, photoPaths, { logPath, priorRecords = [] } = {}) {
-    const prompt = buildHandoffPrompt({
+    const revising = meta.kind === "revise";
+    const common = {
       period: normalizePeriod(meta.date, meta.periodStart),
       roster: meta.roster,
       manualText: meta.manualText,
       styleGuide: meta.styleGuide,
       priorRecords,
       photoPaths: photoPaths.map((p) => this.mapPath(p)),
-    });
+    };
+    const prompt = revising
+      ? buildRevisePrompt({ ...common, baseRecords: meta.baseRecords, instruction: meta.instruction })
+      : buildHandoffPrompt(common);
+    const schema = revising ? REVISE_SCHEMA : HANDOFF_SCHEMA;
 
-    const { stdout, stderr, code } = await this.#spawn(this.buildArgs(prompt));
+    const { stdout, stderr, code } = await this.#spawn(this.buildArgs(prompt, schema));
 
     if (logPath) {
       await writeFile(
         logPath,
-        `$ ${this.bin} ${this.buildArgs("<prompt>").join(" ")}\n\n` +
+        `$ ${this.bin} ${this.buildArgs("<prompt>", schema).join(" ")}\n\n` +
           `--- prompt ---\n${prompt}\n\n` +
           `--- exit ${code} ---\n\n--- stdout ---\n${stdout}\n\n--- stderr ---\n${stderr}\n`,
         "utf8"
@@ -117,6 +130,7 @@ export class ClaudeRunner {
 
     return {
       records: structured.records.map(normalizeRecord).filter((r) => r.name),
+      reply: revising ? String(structured.reply ?? "").trim() || null : null,
       costUsd:
         typeof payload.total_cost_usd === "number"
           ? payload.total_cost_usd

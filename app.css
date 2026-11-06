@@ -646,6 +646,51 @@ body[data-mode="local"] .only-subscription { display: none !important; }
 .confirm-wrap { align-items: center; margin-top: 12px; }
 .confirm-note { color: var(--text-dim); flex: 1 1 200px; }
 
+/* 목록에서 수정 요청 작업임을 알리는 작은 표 */
+.job-kind {
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--brand);
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 0 5px;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+/* ---------- 수정 요청 ---------- */
+.revise-info {
+  margin: -4px 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--brand);
+  border-radius: var(--radius-sm);
+  background: var(--brand-soft);
+  font-size: .9rem;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.revise-info b { font-weight: 600; }
+.revise-info span { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.revise-wrap {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.revise-wrap h3 { margin: 0; font-size: 1rem; }
+.revise-wrap .hint { margin: 0; }
+.revise-wrap textarea { background: var(--surface); }
+.revise-wrap .actions { margin-top: 0; }
+.revise-wrap .err { margin-top: 0; }
+.revise-wrap .job-status { margin-top: 0; }
+
 .mode-hint {
   margin: 0 0 14px;
   padding: 12px 14px;

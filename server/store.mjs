@@ -7,7 +7,7 @@
 //         photo-1.jpg    업로드된 사진
 //         claude.log     claude CLI 원본 출력 (문제 추적용)
 
-import { mkdir, readFile, writeFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, writeFile, readdir, rm, stat, copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -41,6 +41,47 @@ export class JobStore {
       manualText: manualText ?? "",
       roster: roster ?? [],
       styleGuide: styleGuide ?? "",
+      records: [],
+      error: null,
+      createdAt: new Date().toISOString(),
+      startedAt: null,
+      finishedAt: null,
+      costUsd: null,
+    };
+
+    await this.#write(meta);
+    return meta;
+  }
+
+  /**
+   * 수정 요청을 새 작업으로 만듭니다. 사진·메모·기간은 원본 작업에서 그대로 가져오고(사진은 복사해 두어
+   * 원본을 지워도 남습니다), 폰에 떠 있던 현재 기록(baseRecords)과 지시(instruction)를 함께 둡니다.
+   */
+  async createRevision(parent, { instruction, baseRecords, roster, styleGuide }) {
+    const id = randomUUID().slice(0, 8);
+    const dir = this.#dir(parent.date, id);
+    await mkdir(dir, { recursive: true });
+
+    const files = [];
+    for (const name of parent.photos ?? []) {
+      await copyFile(join(this.#dir(parent.date, parent.id), name), join(dir, name));
+      files.push(name);
+    }
+
+    const meta = {
+      id,
+      date: parent.date,
+      periodStart: parent.periodStart ?? parent.date,
+      status: "queued",
+      kind: "revise",
+      parentId: parent.id,
+      instruction: String(instruction ?? ""),
+      baseRecords: baseRecords ?? [],
+      reply: null,
+      photos: files,
+      manualText: parent.manualText ?? "",
+      roster: roster ?? parent.roster ?? [],
+      styleGuide: styleGuide ?? parent.styleGuide ?? "",
       records: [],
       error: null,
       createdAt: new Date().toISOString(),

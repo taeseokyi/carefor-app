@@ -155,6 +155,7 @@
         <h2>노트북이 만들어 둔 기록</h2>
         <p class="step-desc">
           보낸 사진이 처리되면 여기에 쌓입니다. 눌러서 결과를 불러오세요.
+          3단계에서 수정을 요청한 결과도 <b>수정</b> 표시로 여기에 쌓입니다.
         </p>
       </div>
     </div>
@@ -221,17 +222,35 @@
       </div>
     </div>
     <p class="result-summary" id="result-summary"></p>
+    <div class="revise-info only-local" id="revise-info" hidden></div>
     <div class="actions only-local confirm-wrap" hidden>
       <button type="button" class="btn primary btn-confirm"><span class="btn-label">노트북에 확정 저장</span></button>
       <small class="confirm-note">고친 내용을 노트북에 그날의 기록으로 남깁니다. 다음에 상태변화 기간을 묶어 쓸 때 이 기록을 참고합니다.</small>
     </div>
-    <p class="error confirm-error" hidden></p>
+    <p class="err confirm-error" hidden></p>
     <div class="results" id="results"></div>
+
+    <div class="revise-wrap only-local" id="revise-wrap" hidden>
+      <h3>노트북에 수정 요청</h3>
+      <p class="hint">고치고 싶은 점을 평소 말투로 적어 보내면, 노트북이 사진·메모와 위 기록(직접 고친 부분 포함)을
+        함께 보고 다시 써 줍니다. 결과는 새 작업으로 2단계 목록에 쌓이고, 지금 기록도 그대로 남습니다.</p>
+      <textarea id="revise-input" rows="3"
+        placeholder="예) 홍길동 상태변화에서 낙상 이야기는 빼 주세요&#10;예) 점심 식사 문장을 한 줄로 줄여 주세요&#10;예) 박순자 인지관리에 노래 프로그램 참여 내용을 넣어 주세요"></textarea>
+      <div class="actions">
+        <button type="button" class="btn primary" id="btn-revise"><span class="btn-label">노트북에 수정 요청</span></button>
+      </div>
+      <p class="err" id="revise-error" hidden></p>
+      <div class="job-status" id="revise-status" hidden>
+        <span class="spinner" id="revise-spinner"></span>
+        <span class="job-text" id="revise-status-text"></span>
+      </div>
+    </div>
+
     <div class="actions only-local confirm-wrap" hidden>
       <button type="button" class="btn primary btn-confirm"><span class="btn-label">노트북에 확정 저장</span></button>
       <small class="confirm-note">위에서 고친 내용을 노트북에 그날의 기록으로 남깁니다.</small>
     </div>
-    <p class="error confirm-error" hidden></p>
+    <p class="err confirm-error" hidden></p>
   </section>
 
 </main>

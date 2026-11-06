@@ -210,6 +210,18 @@ export async function confirmJob(baseUrl, token, id, records) {
 }
 
 /**
+ * 폰에 떠 있는 기록(손으로 고친 것 포함)과 수정 지시를 노트북에 보내 새 작업으로 고쳐 쓰게 합니다.
+ * 원본 작업은 그대로 남고, 수정 결과는 목록에 새 작업으로 쌓입니다.
+ */
+export async function reviseJob(baseUrl, token, id, { instruction, records, roster, styleGuide }) {
+  const data = await request(baseUrl, token, `/api/jobs/${id}/revise`, {
+    method: "POST",
+    body: JSON.stringify({ instruction, records, roster, styleGuide }),
+  });
+  return data.job;
+}
+
+/**
  * 작업이 끝날 때까지 지켜봅니다. 처리 중에는 몇 초 간격으로 다시 물어봅니다.
  */
 export async function waitForJob(

@@ -223,9 +223,14 @@ server.pid          떼어 띄운 서버의 PID
 | DELETE | `/api/jobs/:id` | 작업 삭제 |
 | POST | `/api/jobs/:id/adopt` | 폰이 이 작업의 결과를 불러와 썼다는 표시(채택). 같은 날 같은 이름이 든 다른 작업의 채택은 풀립니다 |
 | PUT | `/api/jobs/:id/records` | 폰에서 고친 최종 기록(`{records:[…]}`)으로 결과를 덮어쓰고 확정 표시 |
+| POST | `/api/jobs/:id/revise` | 수정 요청. `{instruction, records?, roster?, styleGuide?}` 를 받아 **새 작업**을 줄 세웁니다. 사진·메모·기간은 원본에서 복사하고, `records`(폰 화면의 현재 기록, 없으면 원본 결과)를 지시에 맞춰 고칩니다 |
 | GET | `/api/jobs/:id/photos/:n` | 올린 사진 다시 보기 |
 
 작업은 한 번에 하나씩 처리됩니다. 여러 건을 보내면 줄을 서서 차례로 돌아갑니다.
+
+수정 요청으로 만든 작업은 `meta.json`에 `kind: "revise"`, `parentId`, `instruction`, `baseRecords`가 남고,
+끝나면 모델이 무엇을 고쳤는지 적은 `reply`가 들어옵니다. 목록·조회 응답에는 `kind`, `parentId`,
+`instructionHead`(지시 머리 80자), `reply`가 함께 옵니다. 원본 작업을 지워도 수정 작업은 남습니다(사진을 복사해 두므로).
 
 ## 문제가 생기면
 

@@ -557,6 +557,141 @@ export function buildPriorRecordsSection(priorRecords, period) {
 ${blocks.join("\n\n")}`;
 }
 
+// ---------- 수정 요청 : 만들어 둔 기록을 지시에 맞춰 고치기 ----------
+
+/**
+ * 이미 만들어 둔 기록을 작성자의 수정 지시에 맞춰 고치는 프롬프트.
+ * 노트북 모드에서 claude CLI 에 넘깁니다(photoPaths 사용). photoPaths 가 없으면 Claude 앱에 붙여 넣는 형태가 됩니다.
+ * baseRecords 는 폰 화면에 떠 있던 기록으로, 작성자가 손으로 고친 부분까지 들어 있습니다.
+ */
+export function buildRevisePrompt({
+  period,
+  roster,
+  manualText,
+  styleGuide,
+  priorRecords,
+  photoPaths,
+  baseRecords,
+  instruction,
+}) {
+  const parts = [];
+
+  const periodLine =
+    period.days > 1
+      ? `기록일: ${period.endLabel}\n상태변화 기간: ${period.label} (${period.days}일)`
+      : `기록일: ${period.endLabel}`;
+
+  const intro = photoPaths?.length
+    ? `${WRITE_INTRO}
+아래 메모로 이미 작성해 둔 기록이 있습니다. 작성자가 그 기록을 보고 수정 지시를 보냈습니다.
+지시에 맞춰 기록을 고쳐 주세요.
+
+아래 이미지 파일은 메모 원본입니다. Read 도구로 읽어 주세요.
+파일이 여럿이면 한 장씩 차례로 읽지 말고, 첫 번째 응답에서 모든 파일의 Read 를 한꺼번에 호출해 주세요.
+
+${photoPaths.map((p) => `- ${p}`).join("\n")}
+
+${periodLine}`
+    : `${WRITE_INTRO}
+아래 메모로 이미 작성해 둔 기록이 있습니다. 작성자가 그 기록을 보고 수정 지시를 보냈습니다.
+지시에 맞춰 기록을 고쳐 주세요. 사진을 첨부했다면 그 사진이 메모 원본입니다.
+
+${periodLine}`;
+
+  parts.push(intro);
+
+  parts.push(`[메모 읽는 법]
+- 메모는 "수급자 이름 - 관찰/특이 사항" 형태의 줄로 되어 있습니다.
+- 같은 이름이 여러 줄에 나오면 그 사람의 메모를 모두 모아 함께 봅니다.
+- 여러 이름이 중괄호·괄호·세로선·화살표로 묶여 하나의 내용에 연결된 경우, 묶인 사람 각각에게 그 내용이 해당합니다.
+- 글머리 기호(o, ·, -, ■), 날짜 칸, 인쇄된 양식 글자("Date", "Memo", 워터마크)는 내용에서 제외합니다.
+- 메모에 "10/21"처럼 월/일 날짜가 적혀 있으면 그 날짜의 메모입니다. 날짜가 없는 메모는 기록일 메모입니다.`);
+
+  parts.push(buildWriteRules(period));
+
+  if (roster?.length) {
+    parts.push(
+      `[수급자 명단]\n${roster.join("\n")}\n\n` +
+        `이름은 현재 기록의 name 표기를 그대로 씁니다. 지시로 사람을 더할 때만 이 명단의 표기에 맞춥니다.`
+    );
+  }
+
+  if (manualText?.trim()) {
+    parts.push(`[사진 외에 직접 적은 메모]\n${manualText.trim()}`);
+  }
+
+  const prior = buildPriorRecordsSection(priorRecords, period);
+  if (prior) parts.push(prior);
+
+  if (styleGuide?.trim()) {
+    parts.push(`${STYLE_GUIDE_HEADER}\n\n${styleGuide.trim()}`);
+  }
+
+  parts.push(buildCurrentRecordsSection(baseRecords));
+
+  parts.push(`[수정 지시 — 작성자가 보낸 것]
+${String(instruction ?? "").trim()}`);
+
+  parts.push(`[수정 원칙]
+- 수정 지시를 가장 먼저 따른다. 위의 작성 규칙·문체 지침과 어긋나면 지시를 따른다.
+  다만 "호칭은 조사를 붙인 어르신으로 통일하고 이름을 넣지 않는다"는 원칙은 지시가 있어도 지킨다.
+- 지시가 가리키는 사람과 칸만 고친다. 지시와 관계없는 사람·칸은 현재 기록의 문장을 글자 하나 바꾸지 말고
+  그대로 돌려준다. 작성자가 손으로 고쳐 둔 부분이 섞여 있으므로 멋대로 다듬지 않는다.
+- 지시가 사람을 가리키지 않으면(예: "문장을 더 짧게") 모든 사람의 해당 칸에 적용한다.
+  칸도 가리키지 않으면 세 칸 모두에 적용한다.
+- 지시에 적힌 사실("실제로는 반만 드셨다", "오후에 혈압도 쟀다")은 작성자가 직접 알려 준 것이므로
+  메모와 같은 근거로 보고 그대로 반영한다. 지시에도 메모에도 없는 활동·사건·수치는 여전히 지어내지 않는다.
+- 지시로 사람을 빼라고 하면 records 에서 그 사람을 뺀다. 더하라고 하면 지시에 적힌 내용으로 그 사람을 만든다.
+  그 밖에는 현재 기록의 사람과 순서를 그대로 유지한다.
+- name 은 현재 기록의 표기를 그대로 쓴다. notes 는 현재 기록의 것을 그대로 두되, 메모를 잘못 읽은 것이
+  지시로 드러났으면 바로잡는다. uncertain 은 현재 값을 유지한다.
+- 고친 칸도 [문체], [대응과 결과], [칸별 기준], [분량] 규칙을 지킨다. state_change 는 "어르신이 ${period.label}"로 시작한다.
+- reply 에는 무엇을 어떻게 고쳤는지 한두 문장으로 적는다. 지시 중 따르지 못한 것(근거가 없어 넣지 않은 내용,
+  뜻을 알 수 없는 부분)이 있으면 무엇을 왜 못 했는지 함께 적는다. 작성자에게 보여 주는 글이므로 존댓말로 쓴다.`);
+
+  // CLI 쪽은 --json-schema 로 형식을 강제하므로 이 안내가 필요 없습니다.
+  if (photoPaths?.length) return parts.join("\n\n");
+
+  parts.push(`[답변 형식 — 매우 중요]
+설명이나 인사말 없이, 아래 형태의 JSON 하나만 코드블록으로 출력해 주세요. 고치지 않은 사람도 모두 포함합니다.
+
+\`\`\`json
+{
+  "reply": "무엇을 어떻게 고쳤는지, 못 한 것이 있으면 그 이유",
+  "records": [
+    {
+      "name": "수급자 이름",
+      "notes": ["메모에서 읽어 낸 내용"],
+      "uncertain": false,
+      "physical": "신체활동 특이사항 문장",
+      "cognitive": "인지관리 특이사항 문장",
+      "state_change": "상태변화 기록 문장"
+    }
+  ]
+}
+\`\`\``);
+
+  return parts.join("\n\n");
+}
+
+/** 수정 요청 프롬프트에 넣을 현재 기록. 빈 칸은 "(비어 있음)"으로 표시해 모델이 빈 칸을 채워 넣지 않게 합니다. */
+export function buildCurrentRecordsSection(records) {
+  const blocks = (records ?? []).map((raw) => {
+    const r = scrubRecord(raw);
+    const lines = [`■ ${r.name}${r.uncertain ? " (확인 필요 표시 있음)" : ""}`];
+    if (r.notes?.length) lines.push(`  메모: ${r.notes.join(" / ")}`);
+    lines.push(`  physical(신체활동): ${r.physical || "(비어 있음)"}`);
+    lines.push(`  cognitive(인지관리): ${r.cognitive || "(비어 있음)"}`);
+    lines.push(`  state_change(상태변화): ${r.state_change || "(비어 있음)"}`);
+    return lines.join("\n");
+  });
+
+  return `[현재 기록 — 작성자가 화면에서 손으로 고친 내용까지 반영된 상태]
+"(비어 있음)"은 그 칸이 빈 문자열이라는 뜻이다. 지시가 없으면 빈 칸은 빈 채로 둔다.
+
+${blocks.join("\n\n")}`;
+}
+
 /** claude CLI 의 --json-schema 로 넘기는 응답 형식. */
 export const HANDOFF_SCHEMA = {
   type: "object",
@@ -603,6 +738,20 @@ export const HANDOFF_SCHEMA = {
     },
   },
   required: ["records"],
+  additionalProperties: false,
+};
+
+/** 수정 요청의 응답 형식. 기록 전체에 더해 작성자에게 보여 줄 답(reply)을 받습니다. */
+export const REVISE_SCHEMA = {
+  type: "object",
+  properties: {
+    reply: {
+      type: "string",
+      description: "무엇을 어떻게 고쳤는지, 지시 중 따르지 못한 것이 있으면 그 이유. 작성자에게 보여 주는 글.",
+    },
+    records: HANDOFF_SCHEMA.properties.records,
+  },
+  required: ["reply", "records"],
   additionalProperties: false,
 };
 
